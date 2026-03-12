@@ -1,69 +1,152 @@
-// Netlify serverless function: fetches today's MLB games with lineups
-exports.handler = async (event, context) => {
+// games.js — Netlify serverless function
+// Tier 1: The Odds API (ODDS_API_KEY env var)
+// Tier 2: MLB Stats API odds field
+// Tier 3: Returns null ML lines so frontend can prompt manual entry
+
+const MLB_ID_TO_ABBR = {
+  110:'BAL',111:'BOS',147:'NYY',139:'TBR',141:'TOR',
+  145:'CHW',114:'CLE',116:'DET',118:'KCR',142:'MIN',
+  117:'HOU',108:'LAA',133:'ATH',136:'SEA',140:'TEX',
+  144:'ATL',146:'MIA',121:'NYM',143:'PHI',120:'WSN',
+  112:'CHC',113:'CIN',158:'MIL',134:'PIT',138:'STL',
+  109:'ARI',115:'COL',119:'LAD',135:'SDP',137:'SFG'
+};
+
+const ODDS_NAME_TO_ABBR = {
+  'Baltimore Orioles':'BAL','Boston Red Sox':'BOS','New York Yankees':'NYY',
+  'Tampa Bay Rays':'TBR','Toronto Blue Jays':'TOR','Chicago White Sox':'CHW',
+  'Cleveland Guardians':'CLE','Detroit Tigers':'DET','Kansas City Royals':'KCR',
+  'Minnesota Twins':'MIN','Houston Astros':'HOU','Los Angeles Angels':'LAA',
+  'Oakland Athletics':'ATH','Athletics':'ATH','Seattle Mariners':'SEA',
+  'Texas Rangers':'TEX','Atlanta Braves':'ATL','Miami Marlins':'MIA',
+  'New York Mets':'NYM','Philadelphia Phillies':'PHI','Washington Nationals':'WSN',
+  'Chicago Cubs':'CHC','Cincinnati Reds':'CIN','Milwaukee Brewers':'MIL',
+  'Pittsburgh Pirates':'PIT','St. Louis Cardinals':'STL','Arizona Diamondbacks':'ARI',
+  'Colorado Rockies':'COL','Los Angeles Dodgers':'LAD','San Diego Padres':'SDP',
+  'San Francisco Giants':'SFG'
+};
+
+// TIER 1: The Odds API
+async function fetchOddsApiLines() {
+  const apiKey = process.env.ODDS_API_KEY;
+  if (!apiKey) return {};
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const lines = {};
+    for (const game of data) {
+      const homeAbbr = ODDS_NAME_TO_ABBR[game.home_team];
+      const awayAbbr = ODDS_NAME_TO_ABBR[game.away_team];
+      if (!homeAbbr || !awayAbbr) continue;
+      let awayMLs = [], homeMLs = [];
+      for (const bm of game.bookmakers || []) {
+        for (const market of bm.markets || []) {
+          if (market.key !== 'h2h') continue;
+          for (const outcome of market.outcomes || []) {
+            const abbr = ODDS_NAME_TO_ABBR[outcome.name];
+            if (abbr === awayAbbr) awayMLs.push(outcome.price);
+            if (abbr === homeAbbr) homeMLs.push(outcome.price);
+          }
+        }
+      }
+      if (awayMLs.length > 0 && homeMLs.length > 0) {
+        awayMLs.sort((a,b) => a-b);
+        homeMLs.sort((a,b) => a-b);
+        lines[`${awayAbbr}@${homeAbbr}`] = {
+          awayML: awayMLs[Math.floor(awayMLs.length / 2)],
+          homeML: homeMLs[Math.floor(homeMLs.length / 2)],
+          source: 'odds-api'
+        };
+      }
+    }
+    return lines;
+  } catch(e) {
+    console.error('Tier 1 (Odds API) failed:', e.message);
+    return {};
+  }
+}
+
+exports.handler = async function(event, context) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json'
   };
-
   try {
     const today = new Date().toISOString().split('T')[0];
-    const scheduleUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=lineups,probablePitcher,team`;
-    
-    const res = await fetch(scheduleUrl);
-    const data = await res.json();
 
+    // Run MLB schedule fetch and Odds API in parallel
+    const [schedRes, oddsLines] = await Promise.all([
+      fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=lineups,probablePitcher,linescore,odds`),
+      fetchOddsApiLines()
+    ]);
+
+    const schedData = await schedRes.json();
     const games = [];
 
-    for (const dateEntry of data.dates || []) {
-      for (const game of dateEntry.games || []) {
-        const away = game.teams.away;
-        const home = game.teams.home;
+    for (const dateObj of schedData.dates || []) {
+      for (const g of dateObj.games || []) {
+        const awayAbbr = MLB_ID_TO_ABBR[g.teams?.away?.team?.id];
+        const homeAbbr = MLB_ID_TO_ABBR[g.teams?.home?.team?.id];
+        if (!awayAbbr || !homeAbbr) continue;
 
-        const awayLineup = (game.lineups?.awayPlayers || []).map(p => ({
-          id: p.id,
-          name: p.fullName,
-          pos: p.primaryPosition?.abbreviation || '?'
-        }));
-        const homeLineup = (game.lineups?.homePlayers || []).map(p => ({
-          id: p.id,
-          name: p.fullName,
-          pos: p.primaryPosition?.abbreviation || '?'
-        }));
+        const awayLineup = (g.lineups?.awayPlayers || [])
+          .filter(p => p.allPositions?.some(pos => pos.abbreviation !== 'P'))
+          .slice(0, 9).map(p => p.fullName);
+        const homeLineup = (g.lineups?.homePlayers || [])
+          .filter(p => p.allPositions?.some(pos => pos.abbreviation !== 'P'))
+          .slice(0, 9).map(p => p.fullName);
+
+        const awaySP = g.teams?.away?.probablePitcher?.fullName || null;
+        const homeSP  = g.teams?.home?.probablePitcher?.fullName || null;
+
+        const gameTime = g.gameDate
+          ? new Date(g.gameDate).toLocaleTimeString('en-US', {
+              hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
+            })
+          : '';
+
+        // TIER 1: The Odds API
+        const oddsKey = `${awayAbbr}@${homeAbbr}`;
+        let awayML = null, homeML = null, mlSource = null;
+
+        if (oddsLines[oddsKey]) {
+          awayML   = oddsLines[oddsKey].awayML;
+          homeML   = oddsLines[oddsKey].homeML;
+          mlSource = 'odds-api';
+        }
+
+        // TIER 2: MLB Stats API odds field
+        if (awayML === null && g.odds) {
+          for (const odd of g.odds) {
+            if (odd.market === 'h2h') {
+              awayML   = odd.awayOdds ?? null;
+              homeML   = odd.homeOdds ?? null;
+              mlSource = 'mlb-api';
+            }
+          }
+        }
+
+        // TIER 3: null — frontend will show manual input fields
+        if (awayML === null) mlSource = 'manual';
 
         games.push({
-          gameId: game.gamePk,
-          status: game.status?.detailedState,
-          time: game.gameDate,
-          away: {
-            team: away.team.teamName,
-            teamFull: away.team.name,
-            teamId: away.team.id,
-            score: away.score,
-            pitcher: away.probablePitcher?.fullName || null,
-            lineup: awayLineup
-          },
-          home: {
-            team: home.team.teamName,
-            teamFull: home.team.name,
-            teamId: home.team.id,
-            score: home.score,
-            pitcher: home.probablePitcher?.fullName || null,
-            lineup: homeLineup
-          }
+          gameId:      String(g.gamePk),
+          date:        today,
+          awayAbbr,   homeAbbr,
+          awayLineup, homeLineup,
+          awaySP,     homeSP,
+          time:        gameTime,
+          awayML,     homeML,
+          mlSource,                      // 'odds-api' | 'mlb-api' | 'manual'
+          status:      g.status?.abstractGameState || 'Preview'
         });
       }
     }
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ date: today, games })
-    };
-  } catch (err) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: err.message })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ games }) };
+  } catch(e) {
+    return { statusCode: 500, headers, body: JSON.stringify({ error: e.message, games: [] }) };
   }
 };
