@@ -1,7 +1,26 @@
 // games.js — Netlify serverless function
-// Tier 1: The Odds API (ODDS_API_KEY env var)
+// Tier 1: The Odds API (ODDS_API_KEY env var) — cached 1 hour in /tmp
 // Tier 2: MLB Stats API odds field
 // Tier 3: Returns null ML lines so frontend can prompt manual entry
+
+const fs = require('fs');
+const CACHE_FILE = '/tmp/odds_cache.json';
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function readCache() {
+  try {
+    const raw = fs.readFileSync(CACHE_FILE, 'utf8');
+    const { timestamp, data } = JSON.parse(raw);
+    if (Date.now() - timestamp < CACHE_TTL_MS) return data;
+  } catch(e) {}
+  return null;
+}
+
+function writeCache(data) {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ timestamp: Date.now(), data }));
+  } catch(e) {}
+}
 
 const MLB_ID_TO_ABBR = {
   110:'BAL',111:'BOS',147:'NYY',139:'TBR',141:'TOR',
@@ -26,10 +45,15 @@ const ODDS_NAME_TO_ABBR = {
   'San Francisco Giants':'SFG'
 };
 
-// TIER 1: The Odds API
+// TIER 1: The Odds API (with /tmp cache)
 async function fetchOddsApiLines() {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) return {};
+
+  // Return cached result if still fresh
+  const cached = readCache();
+  if (cached) return cached;
+
   try {
     const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -57,10 +81,10 @@ async function fetchOddsApiLines() {
         lines[`${awayAbbr}@${homeAbbr}`] = {
           awayML: awayMLs[Math.floor(awayMLs.length / 2)],
           homeML: homeMLs[Math.floor(homeMLs.length / 2)],
-          source: 'odds-api'
         };
       }
     }
+    writeCache(lines); // save for next hour
     return lines;
   } catch(e) {
     console.error('Tier 1 (Odds API) failed:', e.message);
@@ -76,7 +100,7 @@ exports.handler = async function(event, context) {
   try {
     const today = new Date().toISOString().split('T')[0];
 
-    // Run MLB schedule fetch and Odds API in parallel
+    // MLB schedule + Odds API in parallel (Odds API may return from cache)
     const [schedRes, oddsLines] = await Promise.all([
       fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=lineups,probablePitcher,linescore,odds`),
       fetchOddsApiLines()
@@ -107,7 +131,7 @@ exports.handler = async function(event, context) {
             })
           : '';
 
-        // TIER 1: The Odds API
+        // TIER 1: The Odds API (from cache or fresh fetch)
         const oddsKey = `${awayAbbr}@${homeAbbr}`;
         let awayML = null, homeML = null, mlSource = null;
 
@@ -128,7 +152,7 @@ exports.handler = async function(event, context) {
           }
         }
 
-        // TIER 3: null — frontend will show manual input fields
+        // TIER 3: null — frontend shows manual input fields
         if (awayML === null) mlSource = 'manual';
 
         games.push({
@@ -139,7 +163,7 @@ exports.handler = async function(event, context) {
           awaySP,     homeSP,
           time:        gameTime,
           awayML,     homeML,
-          mlSource,                      // 'odds-api' | 'mlb-api' | 'manual'
+          mlSource,
           status:      g.status?.abstractGameState || 'Preview'
         });
       }
