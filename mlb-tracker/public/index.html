@@ -154,6 +154,17 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   
   .ml-input:focus { outline: none; border-color: var(--accent2); }
+  /* P&L CHART */
+  .pnl-container { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-top: 24px; }
+  .pnl-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+  .pnl-title { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--text3); }
+  .pnl-stats { display: flex; gap: 20px; flex-wrap: wrap; }
+  .pnl-stat { text-align: right; }
+  .pnl-stat-val { font-size: 20px; font-weight: 900; letter-spacing: -0.5px; }
+  .pnl-stat-label { font-size: 10px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; }
+  .pnl-canvas-wrap { position: relative; height: 200px; }
+  canvas#pnl-chart { width: 100%; height: 100%; }
+  .pnl-note { font-size: 10px; color: var(--text3); margin-top: 8px; letter-spacing: 0.5px; }
   .tag { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
   .tag-win { background: rgba(22,163,74,0.2); color: var(--win); border: 1px solid rgba(22,163,74,0.3); }
   .tag-loss { background: rgba(220,38,38,0.2); color: var(--loss); border: 1px solid rgba(220,38,38,0.3); }
@@ -259,14 +270,43 @@
           <th>Vegas %</th>
           <th>Edge</th>
           <th>Vegas ML</th>
+          <th>Wager</th>
           <th>Score</th>
           <th>Result</th>
+          <th>P&L</th>
         </tr>
       </thead>
       <tbody id="bet-log-body"></tbody>
     </table>
   </div>
   <div class="empty-state" id="bet-log-empty">No bets logged yet. Bets are auto-logged when flagged in Daily Matchups.</div>
+
+  <!-- P&L CHART -->
+  <div class="pnl-container" id="pnl-container" style="display:none">
+    <div class="pnl-header">
+      <div>
+        <div class="pnl-title">Hypothetical Fund — Starting $100</div>
+        <div class="pnl-note">Wager sizing by edge bucket. Each game counted once. Pending bets excluded.</div>
+      </div>
+      <div class="pnl-stats">
+        <div class="pnl-stat">
+          <div class="pnl-stat-val" id="pnl-current">$100.00</div>
+          <div class="pnl-stat-label">Current Fund</div>
+        </div>
+        <div class="pnl-stat">
+          <div class="pnl-stat-val" id="pnl-return">+$0.00</div>
+          <div class="pnl-stat-label">Total Return</div>
+        </div>
+        <div class="pnl-stat">
+          <div class="pnl-stat-val" id="pnl-roi">0.0%</div>
+          <div class="pnl-stat-label">ROI</div>
+        </div>
+      </div>
+    </div>
+    <div class="pnl-canvas-wrap">
+      <canvas id="pnl-chart"></canvas>
+    </div>
+  </div>
 </div>
 
 <!-- ============================================================ TAB 4: UPLOAD & SUMMARY -->
@@ -277,7 +317,7 @@
     <div>
       <div class="section-title">2026 Hitter Projections (RoS)</div>
       <div class="upload-zone" id="zone-hit26" onclick="document.getElementById('input-hit26').click()">
-        <div class="upload-icon">📊</div>
+        <div class="upload-icon">🏏</div>
         <div class="upload-title">Hitter WAR Projections</div>
         <div class="upload-sub">Name, Team, WAR (CSV)</div>
         <input type="file" class="upload-input" id="input-hit26" accept=".csv" onchange="handleUpload('hit26', this)">
@@ -903,10 +943,153 @@ function applyManualML(gameId, awayAbbr, homeAbbr) {
   `;
 }
 
+// ============================================================ P&L HELPERS
+
+const WAGER_PCT = {
+  '0–3%':  0.001,
+  '3–6%':  0.002,
+  '6–9%':  0.004,
+  '9–11%': 0.005,
+  '11–13%':0.010,
+  '13–15%':0.015,
+  '>15%':  0.020,
+};
+
+function mlToReturn(ml) {
+  // Returns the profit per $1 wagered if bet wins
+  if (!ml) return 1; // fallback even money
+  if (ml > 0) return ml / 100;
+  return 100 / Math.abs(ml);
+}
+
+function calcPnlSeries(resolvedBets) {
+  // resolvedBets: sorted chronologically, only W or L, each counted once
+  // Returns { points: [{label, fund}], finalFund, totalReturn, roi }
+  const STARTING = 100;
+  let fund = STARTING;
+  const points = [{ label: 'Start', fund: STARTING }];
+
+  for (const b of resolvedBets) {
+    const bk = edgeBucket(parseFloat(b.edge) / 100);
+    const wagerPct = WAGER_PCT[bk] || 0.001;
+    const wager = fund * wagerPct;
+    const ret = mlToReturn(b.vegasML);
+
+    if (b.result === 'W') {
+      fund += wager * ret;
+    } else {
+      fund -= wager;
+    }
+    points.push({ label: b.date, fund: parseFloat(fund.toFixed(2)) });
+  }
+
+  const totalReturn = fund - STARTING;
+  const roi = (totalReturn / STARTING) * 100;
+  return { points, finalFund: fund, totalReturn, roi };
+}
+
+let pnlChartInstance = null;
+
+function drawPnlChart(points) {
+  const canvas = document.getElementById('pnl-chart');
+  const ctx = canvas.getContext('2d');
+
+  // Set canvas resolution
+  const wrap = canvas.parentElement;
+  canvas.width = wrap.clientWidth * window.devicePixelRatio;
+  canvas.height = wrap.clientHeight * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (points.length < 2) return;
+
+  const funds = points.map(p => p.fund);
+  const minF = Math.min(...funds);
+  const maxF = Math.max(...funds);
+  const padding = { top: 16, right: 16, bottom: 28, left: 52 };
+  const chartW = W - padding.left - padding.right;
+  const chartH = H - padding.top - padding.bottom;
+  const range = maxF - minF || 1;
+
+  const toX = i => padding.left + (i / (points.length - 1)) * chartW;
+  const toY = v => padding.top + chartH - ((v - minF) / range) * chartH;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(30,45,66,0.8)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = padding.top + (i / 4) * chartH;
+    ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(W - padding.right, y); ctx.stroke();
+    const val = maxF - (i / 4) * range;
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('$' + val.toFixed(0), padding.left - 6, y + 4);
+  }
+
+  // $100 baseline
+  const baseY = toY(100);
+  ctx.strokeStyle = 'rgba(100,116,139,0.4)';
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(padding.left, baseY); ctx.lineTo(W - padding.right, baseY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, padding.top, 0, H - padding.bottom);
+  const finalFund = funds[funds.length - 1];
+  const isUp = finalFund >= 100;
+  grad.addColorStop(0, isUp ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(points[0].fund));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(toX(i), toY(points[i].fund));
+  ctx.lineTo(toX(points.length - 1), H - padding.bottom);
+  ctx.lineTo(toX(0), H - padding.bottom);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.strokeStyle = isUp ? '#22c55e' : '#ef4444';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(points[0].fund));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(toX(i), toY(points[i].fund));
+  ctx.stroke();
+
+  // Dots at each bet
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i];
+    const prev = points[i-1];
+    const won = p.fund > prev.fund;
+    ctx.beginPath();
+    ctx.arc(toX(i), toY(p.fund), 3, 0, Math.PI * 2);
+    ctx.fillStyle = won ? '#22c55e' : '#ef4444';
+    ctx.fill();
+  }
+
+  // X-axis labels (first, last, and every ~20 bets)
+  ctx.fillStyle = '#64748b';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  const labelIndices = new Set([1, points.length - 1]);
+  const step = Math.max(1, Math.floor((points.length - 1) / 5));
+  for (let i = step; i < points.length - 1; i += step) labelIndices.add(i);
+  for (const i of labelIndices) {
+    ctx.fillText(points[i].label, toX(i), H - padding.bottom + 14);
+  }
+}
+
 // ============================================================ BET LOG
 
 function buildBetLog() {
   const daily = betLog.filter(b => b.type === 'daily');
+  const resolved = daily.filter(b => b.result !== 'P');
   const wins = daily.filter(b => b.result === 'W').length;
   const losses = daily.filter(b => b.result === 'L').length;
   const total = wins + losses;
@@ -939,21 +1122,59 @@ function buildBetLog() {
   }).join('');
   document.getElementById('buckets-container').innerHTML = bucketsHtml;
 
+  // Compute running P&L for each bet (chronological order)
+  const chronological = daily.slice().sort((a,b) => a.date.localeCompare(b.date));
+  let runningFund = 100;
+  const betPnl = {}; // gameId -> { wager, pnl, fundAfter }
+  for (const b of chronological) {
+    const bk = edgeBucket(parseFloat(b.edge) / 100);
+    const wagerPct = WAGER_PCT[bk] || 0.001;
+    const wager = runningFund * wagerPct;
+    const ret = mlToReturn(b.vegasML);
+    let pnl = 0;
+    if (b.result === 'W') { pnl = wager * ret; runningFund += pnl; }
+    else if (b.result === 'L') { pnl = -wager; runningFund += pnl; }
+    betPnl[b.gameId] = { wager: b.result === 'P' ? wager : wager, pnl, resolved: b.result !== 'P' };
+  }
+
   // Table
   const body = document.getElementById('bet-log-body');
   const empty = document.getElementById('bet-log-empty');
   if (daily.length === 0) {
     body.innerHTML = '';
     empty.style.display = '';
+    document.getElementById('pnl-container').style.display = 'none';
     return;
   }
   empty.style.display = 'none';
+
+  // Recompute wagers in reverse for display (show pending wager based on current fund at time of bet)
+  let dispFund = 100;
+  const dispWagers = {};
+  for (const b of chronological) {
+    const bk = edgeBucket(parseFloat(b.edge) / 100);
+    const wagerPct = WAGER_PCT[bk] || 0.001;
+    const wager = dispFund * wagerPct;
+    const ret = mlToReturn(b.vegasML);
+    let pnl = null;
+    if (b.result === 'W') { pnl = wager * ret; dispFund += pnl; }
+    else if (b.result === 'L') { pnl = -wager; dispFund += pnl; }
+    dispWagers[b.gameId] = { wager, pnl };
+  }
+
   body.innerHTML = daily.slice().reverse().map(b => {
     const resultHtml = b.result === 'W' ? '<span class="tag tag-win">WIN</span>'
       : b.result === 'L' ? '<span class="tag tag-loss">LOSS</span>'
       : '<span class="tag tag-pending">PENDING</span>';
     const edgeNum = parseFloat(b.edge);
     const edgeCls = edgeNum > 5 ? 'diff-pos' : edgeNum > 0 ? '' : 'diff-neg';
+    const wd = dispWagers[b.gameId] || {};
+    const wagerStr = wd.wager ? `$${wd.wager.toFixed(2)}` : '—';
+    let pnlStr = '—', pnlCls = '';
+    if (b.result !== 'P' && wd.pnl !== null && wd.pnl !== undefined) {
+      pnlStr = (wd.pnl >= 0 ? '+' : '') + '$' + wd.pnl.toFixed(2);
+      pnlCls = wd.pnl >= 0 ? 'diff-pos' : 'diff-neg';
+    }
     return `<tr>
       <td>${b.date}</td>
       <td>${b.matchup}</td>
@@ -962,10 +1183,29 @@ function buildBetLog() {
       <td>${b.vegasPct}%</td>
       <td class="${edgeCls}">+${b.edge}%</td>
       <td>${formatML(b.vegasML)}</td>
+      <td>${wagerStr}</td>
       <td>${b.score}</td>
       <td>${resultHtml}</td>
+      <td class="${pnlCls}">${pnlStr}</td>
     </tr>`;
   }).join('');
+
+  // P&L chart — only resolved bets
+  const resolvedChron = chronological.filter(b => b.result !== 'P');
+  if (resolvedChron.length > 0) {
+    document.getElementById('pnl-container').style.display = '';
+    const { points, finalFund, totalReturn, roi } = calcPnlSeries(resolvedChron);
+    const returnColor = totalReturn >= 0 ? 'var(--over)' : 'var(--under)';
+    document.getElementById('pnl-current').textContent = '$' + finalFund.toFixed(2);
+    document.getElementById('pnl-current').style.color = returnColor;
+    document.getElementById('pnl-return').textContent = (totalReturn >= 0 ? '+' : '') + '$' + totalReturn.toFixed(2);
+    document.getElementById('pnl-return').style.color = returnColor;
+    document.getElementById('pnl-roi').textContent = (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%';
+    document.getElementById('pnl-roi').style.color = returnColor;
+    requestAnimationFrame(() => drawPnlChart(points));
+  } else {
+    document.getElementById('pnl-container').style.display = 'none';
+  }
 }
 
 async function checkOutcomes() {
