@@ -256,7 +256,6 @@
 
   <div class="controls">
     <button class="btn btn-sm" onclick="checkOutcomes()"><span id="outcomes-spinner" style="display:none" class="loading"></span>Check Outcomes</button>
-    <button class="btn btn-sm btn-outline" onclick="clearBetLog()">Clear Log</button>
   </div>
 
   <div class="table-wrap">
@@ -1233,13 +1232,6 @@ async function checkOutcomes() {
   spinner.style.display = 'none';
 }
 
-function clearBetLog() {
-  if (!confirm('Clear all bet log entries?')) return;
-  betLog = betLog.filter(b => b.type === 'season');
-  seenGameIds.clear();
-  saveState();
-  buildBetLog();
-}
 
 // ============================================================ UPLOAD
 
