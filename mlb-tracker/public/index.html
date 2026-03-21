@@ -169,6 +169,46 @@
   .tag-win { background: rgba(22,163,74,0.2); color: var(--win); border: 1px solid rgba(22,163,74,0.3); }
   .tag-loss { background: rgba(220,38,38,0.2); color: var(--loss); border: 1px solid rgba(220,38,38,0.3); }
   .tag-pending { background: rgba(100,116,139,0.2); color: var(--text3); border: 1px solid var(--border); }
+  /* ---- Audit Drawer ---- */
+  .audit-overlay { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;opacity:0;pointer-events:none;transition:opacity .2s; }
+  .audit-overlay.open { opacity:1;pointer-events:all; }
+  .audit-drawer { position:fixed;top:0;right:0;height:100%;width:min(680px,100vw);background:var(--bg);border-left:1px solid var(--border);z-index:901;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column; }
+  .audit-drawer.open { transform:translateX(0); }
+  .audit-drawer-header { padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:1; }
+  .audit-drawer-title { font-weight:600;font-size:15px; }
+  .audit-close { background:none;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px; }
+  .audit-body { padding:20px;flex:1; }
+  .audit-cols { display:grid;grid-template-columns:1fr 1fr;gap:20px; }
+  .audit-team-label { font-weight:600;font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:var(--accent);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border); }
+  .audit-section { margin-bottom:16px; }
+  .audit-section-title { font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);margin-bottom:8px; }
+  .audit-row { display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--border2);font-size:12px;gap:8px; }
+  .audit-row:last-child { border-bottom:none; }
+  .audit-row-label { color:var(--text2);flex:1;min-width:0; }
+  .audit-row-val { font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:500; }
+  .audit-row-val.pos { color:#4ade80; }
+  .audit-row-val.neg { color:#f87171; }
+  .audit-row-val.warn { color:#facc15; }
+  .audit-batter-row { display:grid;grid-template-columns:16px 1fr 38px 38px 38px;gap:4px;align-items:center;padding:3px 0;border-bottom:1px solid var(--border2);font-size:11px; }
+  .audit-batter-row:last-child { border-bottom:none; }
+  .audit-batter-slot { color:var(--text3);font-size:10px; }
+  .audit-batter-name { color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .audit-batter-name.not-found { color:var(--text3);font-style:italic; }
+  .audit-num { font-variant-numeric:tabular-nums;text-align:right;color:var(--text2);font-size:11px; }
+  .audit-num.pos { color:#4ade80; }
+  .audit-num.neg { color:#f87171; }
+  .audit-divider { border:none;border-top:1px solid var(--border);margin:14px 0; }
+  .audit-final-box { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:4px; }
+  .audit-final-row { display:flex;justify-content:space-between;font-size:12px;padding:3px 0; }
+  .audit-final-row .lbl { color:var(--text3); }
+  .audit-final-row .val { font-weight:600; }
+  .audit-edge-box { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:20px; }
+  .audit-edge-title { font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);margin-bottom:10px; }
+  .audit-edge-row { display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border2); }
+  .audit-edge-row:last-child { border-bottom:none; }
+  .audit-bullpen-toggle { font-size:10px;color:var(--text3);cursor:pointer;user-select:none;margin-top:4px; }
+  .audit-bullpen-list { display:none;margin-top:6px; }
+  .audit-bullpen-list.open { display:block; }
 </style>
 </head>
 <body>
@@ -256,6 +296,7 @@
 
   <div class="controls">
     <button class="btn btn-sm" onclick="checkOutcomes()"><span id="outcomes-spinner" style="display:none" class="loading"></span>Check Outcomes</button>
+    <button class="btn btn-sm btn-outline" onclick="clearBetLog()">Clear Log</button>
   </div>
 
   <div class="table-wrap">
@@ -316,7 +357,7 @@
     <div>
       <div class="section-title">2026 Hitter Projections (RoS)</div>
       <div class="upload-zone" id="zone-hit26" onclick="document.getElementById('input-hit26').click()">
-        <div class="upload-icon">📊</div>
+        <div class="upload-icon">🏏</div>
         <div class="upload-title">Hitter WAR Projections</div>
         <div class="upload-sub">Name, Team, WAR (CSV)</div>
         <input type="file" class="upload-input" id="input-hit26" accept=".csv" onchange="handleUpload('hit26', this)">
@@ -495,36 +536,90 @@ function calcTeamDay(team, lineup, spName, roster) {
 
   // --- OFFENSE ---
   let offDelta = 0;
+  const auditBatters = [];
   lineup.forEach((playerName, idx) => {
     const w = BATTING_ORDER_WEIGHTS[idx] || 1.0;
     const war26 = findWar26(playerName, HITTER_26, uploadedHit26);
     const war25 = findWar25(playerName, HITTER_25);
-    const delta = war26 !== null ? (war26 - (war25 !== null ? war25 : (war26 || 0))) : 0;
-    offDelta += delta * w;
+    const isRookie = war25 === null;
+    const war25val = war25 !== null ? war25 : (war26 || 0);
+    const delta = war26 !== null ? (war26 - war25val) : 0;
+    const weightedDelta = delta * w;
+    offDelta += weightedDelta;
+    auditBatters.push({
+      name: playerName,
+      slot: idx + 1,
+      weight: w,
+      war25: war25 !== null ? war25 : null,
+      war26: war26 !== null ? war26 : null,
+      delta,
+      weightedDelta,
+      found26: war26 !== null,
+      found25: war25 !== null,
+      isRookie
+    });
   });
-  const newRS = baseRS + offDelta * 10;
+  const offRunAdj = offDelta * 10;
+  const newRS = baseRS + offRunAdj;
 
-  // --- PITCHING ---
-  // Starter
-  const spWar26 = findWar26(spName, PITCHER_26, uploadedPit26) || 0;
+  // --- PITCHING: Starter ---
+  const spWar26Raw = findWar26(spName, PITCHER_26, uploadedPit26);
+  const spWar26 = spWar26Raw || 0;
   const spWar25 = findWar25(spName, PITCHER_25);
+  const spWar26Norm = spWar26 * 5;
+  const spWar25Norm = spWar25 !== null ? spWar25 * 5 : null;
   const spDelta = spWar25 !== null ? (spWar26 - spWar25) * 5 : 0;
+  const auditStarter = {
+    name: spName,
+    war26: spWar26Raw,
+    war26Norm: spWar26Norm,
+    war25: spWar25,
+    war25Norm: spWar25Norm,
+    delta: spDelta,
+    found26: spWar26Raw !== null,
+    found25: spWar25 !== null
+  };
 
-  // Bullpen from roster
+  // --- PITCHING: Bullpen ---
   let bullpenDelta = 0;
+  const auditBullpen = [];
   if (roster && roster.rp && roster.rp.length > 0) {
     for (const rp of roster.rp) {
-      const rpWar26 = findWar26(rp.name, PITCHER_26, uploadedPit26) || 0;
+      const rpWar26Raw = findWar26(rp.name, PITCHER_26, uploadedPit26);
+      const rpWar26 = rpWar26Raw || 0;
       const rpWar25 = findWar25(rp.name, PITCHER_25);
       const d = rpWar25 !== null ? (rpWar26 - rpWar25) : 0;
       bullpenDelta += d;
+      auditBullpen.push({
+        name: rp.name,
+        war26: rpWar26Raw,
+        war25: rpWar25,
+        delta: d,
+        found26: rpWar26Raw !== null,
+        found25: rpWar25 !== null
+      });
     }
   }
 
-  const newRA = baseRA - (spDelta + bullpenDelta) * 10;
-
+  const pitRunAdj = (spDelta + bullpenDelta) * 10;
+  const newRA = baseRA - pitRunAdj;
   const winPct = pythag(Math.max(newRS, 1), Math.max(newRA, 1));
-  return { winPct, newRS, newRA };
+
+  return {
+    winPct, newRS, newRA,
+    audit: {
+      baseRS, baseRA,
+      batters: auditBatters,
+      offDelta, offRunAdj,
+      starter: auditStarter,
+      bullpen: auditBullpen,
+      bullpenDelta,
+      spDelta,
+      pitRunAdj,
+      newRS, newRA,
+      winPct
+    }
+  };
 }
 
 // ============================================================ NETLIFY FUNCTIONS
@@ -690,6 +785,8 @@ function computeAndLogGame(g, rosters) {
 
   const awayResult = calcTeamDay(awayTeam, g.awayLineup, g.awaySP, awayRoster);
   const homeResult = calcTeamDay(homeTeam, g.homeLineup, g.homeSP, homeRoster);
+  g._awayAudit = awayResult.audit;
+  g._homeAudit = homeResult.audit;
   const totalPct = awayResult.winPct + homeResult.winPct;
   const awayWinPct = awayResult.winPct / totalPct;
   const homeWinPct = homeResult.winPct / totalPct;
@@ -846,6 +943,10 @@ function renderGameCard(g, rosters, container) {
       </div>` : '';
 
   card.id = `card-${g.gameId}`;
+  const checkWorkBtn = hasLineup && g._awayAudit
+    ? `<div style="padding:0 14px 12px;"><button class="btn btn-sm" style="width:100%;font-size:11px;letter-spacing:.5px;" onclick="openAuditDrawer('${g.gameId}')">🔍 Check My Work</button></div>`
+    : '';
+
   card.innerHTML = `
     <div class="game-card-header">
       <span class="game-time">${g.time || ''}</span>
@@ -870,6 +971,7 @@ function renderGameCard(g, rosters, container) {
         ${edgeSectionFull}
       </div>
     </div>
+    ${checkWorkBtn}
   `;
   container.appendChild(card);
 }
@@ -1232,6 +1334,13 @@ async function checkOutcomes() {
   spinner.style.display = 'none';
 }
 
+function clearBetLog() {
+  if (!confirm('Clear all bet log entries?')) return;
+  betLog = betLog.filter(b => b.type === 'season');
+  seenGameIds.clear();
+  saveState();
+  buildBetLog();
+}
 
 // ============================================================ UPLOAD
 
@@ -1312,6 +1421,179 @@ function showTab(id) {
 loadState();
 buildSeasonTable();
 buildBetLog();
+</script>
+
+<!-- ============================================================ AUDIT DRAWER -->
+<div class="audit-overlay" id="audit-overlay" onclick="closeAuditDrawer()"></div>
+<div class="audit-drawer" id="audit-drawer">
+  <div class="audit-drawer-header">
+    <span class="audit-drawer-title" id="audit-drawer-title">Check My Work</span>
+    <button class="audit-close" onclick="closeAuditDrawer()">✕ Close</button>
+  </div>
+  <div class="audit-body" id="audit-drawer-body"></div>
+</div>
+
+<script>
+function openAuditDrawer(gameId) {
+  const g = dailyGames.find(x => x.gameId === gameId);
+  if (!g || !g._awayAudit || !g._homeAudit) return;
+  const awayTeam = TEAMS.find(t => t.abbr === g.awayAbbr);
+  const homeTeam = TEAMS.find(t => t.abbr === g.homeAbbr);
+
+  document.getElementById('audit-drawer-title').textContent =
+    `${awayTeam.name} @ ${homeTeam.name} — Check My Work`;
+  document.getElementById('audit-drawer-body').innerHTML =
+    buildAuditHTML(g, awayTeam, homeTeam);
+
+  document.getElementById('audit-overlay').classList.add('open');
+  document.getElementById('audit-drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAuditDrawer() {
+  document.getElementById('audit-overlay').classList.remove('open');
+  document.getElementById('audit-drawer').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function toggleBullpen(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
+}
+
+function fmt1(v) { return v !== null && v !== undefined ? v.toFixed(1) : '—'; }
+function fmt2(v) { return v !== null && v !== undefined ? v.toFixed(2) : '—'; }
+function fmtSign(v) {
+  if (v === null || v === undefined) return '—';
+  const s = v.toFixed(2);
+  return v > 0 ? '+' + s : s;
+}
+function valClass(v) {
+  if (v === null || v === undefined) return '';
+  return v > 0.005 ? 'pos' : v < -0.005 ? 'neg' : '';
+}
+
+function buildTeamAuditHTML(team, g, side) {
+  const audit = side === 'away' ? g._awayAudit : g._homeAudit;
+  const sp = side === 'away' ? g.awaySP : g.homeSP;
+  const oppAudit = side === 'away' ? g._homeAudit : g._awayAudit;
+
+  const totalWinPct = g._awayAudit.winPct + g._homeAudit.winPct;
+  const normWinPct = audit.winPct / totalWinPct;
+  const vegasML = side === 'away' ? g.awayML : g.homeML;
+  const vegasImplied = mlToImplied(vegasML);
+  const edge = vegasImplied !== null ? normWinPct - vegasImplied : null;
+
+  // Batters table
+  const batterRows = audit.batters.map(b => {
+    const nameClass = !b.found26 ? 'not-found' : '';
+    const w25 = b.war25 !== null ? b.war25.toFixed(1) : (b.isRookie ? 'new' : '—');
+    const w26 = b.war26 !== null ? b.war26.toFixed(1) : '—';
+    const dClass = b.weightedDelta > 0.005 ? 'pos' : b.weightedDelta < -0.005 ? 'neg' : '';
+    return `<div class="audit-batter-row">
+      <span class="audit-batter-slot">${b.slot}</span>
+      <span class="audit-batter-name ${nameClass}" title="${b.name}">${b.name}</span>
+      <span class="audit-num">${w25}</span>
+      <span class="audit-num">${w26}</span>
+      <span class="audit-num ${dClass}">${fmtSign(b.weightedDelta)}</span>
+    </div>`;
+  }).join('');
+
+  // Bullpen rows
+  const bullpenRows = audit.bullpen.map((rp, i) => {
+    const dClass = rp.delta > 0.005 ? 'pos' : rp.delta < -0.005 ? 'neg' : '';
+    const w25 = rp.war25 !== null ? rp.war25.toFixed(1) : '—';
+    const w26 = rp.war26 !== null ? rp.war26.toFixed(1) : '—';
+    return `<div class="audit-batter-row" style="font-size:10px;">
+      <span class="audit-batter-slot"></span>
+      <span class="audit-batter-name${!rp.found26 ? ' not-found' : ''}" title="${rp.name}">${rp.name}</span>
+      <span class="audit-num">${w25}</span>
+      <span class="audit-num">${w26}</span>
+      <span class="audit-num ${dClass}">${fmtSign(rp.delta)}</span>
+    </div>`;
+  }).join('');
+
+  const bullpenId = `bullpen-${side}-${g.gameId}`;
+
+  const spFound26 = audit.starter.found26 ? '' : ' <span style="color:#facc15;font-size:9px;">NOT FOUND</span>';
+  const spFound25 = audit.starter.found25 ? '' : ' <span style="color:#facc15;font-size:9px;">ROOKIE</span>';
+
+  return `
+    <div class="audit-team-label">${team.name}</div>
+
+    <div class="audit-section">
+      <div class="audit-section-title">Baseline (2025 Regression)</div>
+      <div class="audit-row"><span class="audit-row-label">Proj Runs Scored</span><span class="audit-row-val">${fmt1(audit.baseRS)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Proj Runs Allowed</span><span class="audit-row-val">${fmt1(audit.baseRA)}</span></div>
+    </div>
+
+    <div class="audit-section">
+      <div class="audit-section-title">Lineup WAR Adjustments</div>
+      <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;">
+        <span></span><span>Player</span><span style="text-align:right">WAR'25</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Δ·Wt</span>
+      </div>
+      ${batterRows}
+      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Total weighted Δ WAR</span><span class="audit-row-val ${valClass(audit.offDelta)}">${fmtSign(audit.offDelta)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Run adjustment (Δ × 10)</span><span class="audit-row-val ${valClass(audit.offRunAdj)}">${fmtSign(audit.offRunAdj)}</span></div>
+      <div class="audit-row"><span class="audit-row-label"><strong>Adjusted Runs Scored</strong></span><span class="audit-row-val"><strong>${fmt1(audit.newRS)}</strong></span></div>
+    </div>
+
+    <div class="audit-section">
+      <div class="audit-section-title">Pitching Adjustments</div>
+      <div class="audit-row">
+        <span class="audit-row-label">SP: ${audit.starter.name}${spFound26}${spFound25}</span>
+      </div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'25</span><span class="audit-row-val">${audit.starter.war25 !== null ? audit.starter.war25.toFixed(1) : '—'}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 (raw)</span><span class="audit-row-val">${audit.starter.war26 !== null ? audit.starter.war26.toFixed(1) : '—'}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'25 ×5 (norm.)</span><span class="audit-row-val">${audit.starter.war25Norm !== null ? audit.starter.war25Norm.toFixed(1) : '—'}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 ×5 (norm.)</span><span class="audit-row-val">${fmt1(audit.starter.war26Norm)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">SP Δ WAR (norm.)</span><span class="audit-row-val ${valClass(audit.spDelta)}">${fmtSign(audit.spDelta)}</span></div>
+      ${audit.bullpen.length > 0 ? `
+      <div class="audit-row" style="margin-top:6px;">
+        <span class="audit-row-label">Bullpen Δ WAR (${audit.bullpen.length} pitchers)</span>
+        <span class="audit-row-val ${valClass(audit.bullpenDelta)}">${fmtSign(audit.bullpenDelta)}</span>
+      </div>
+      <div class="audit-bullpen-toggle" onclick="toggleBullpen('${bullpenId}')">▶ Show bullpen detail</div>
+      <div class="audit-bullpen-list" id="${bullpenId}">
+        <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;margin-top:4px;">
+          <span></span><span>Pitcher</span><span style="text-align:right">WAR'25</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Δ</span>
+        </div>
+        ${bullpenRows}
+      </div>` : '<div class="audit-row"><span class="audit-row-label" style="color:var(--text3);font-style:italic;">No bullpen data available</span></div>'}
+      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Total pit. run adj. ((SP Δ + BP Δ) × 10)</span><span class="audit-row-val ${valClass(-audit.pitRunAdj)}">${fmtSign(-audit.pitRunAdj)}</span></div>
+      <div class="audit-row"><span class="audit-row-label"><strong>Adjusted Runs Allowed</strong></span><span class="audit-row-val"><strong>${fmt1(audit.newRA)}</strong></span></div>
+    </div>
+
+    <div class="audit-final-box">
+      <div class="audit-section-title" style="margin-bottom:8px;">Pythagorean Win Probability</div>
+      <div class="audit-final-row"><span class="lbl">RS^1.83 / (RS^1.83 + RA^1.83)</span></div>
+      <div class="audit-final-row"><span class="lbl">${fmt1(audit.newRS)}^1.83 / (${fmt1(audit.newRS)}^1.83 + ${fmt1(audit.newRA)}^1.83)</span></div>
+      <div class="audit-final-row" style="margin-top:4px;"><span class="lbl">Raw win%</span><span class="val">${(audit.winPct * 100).toFixed(2)}%</span></div>
+      <div class="audit-final-row"><span class="lbl">Normalized win% (vs opponent)</span><span class="val" style="font-size:15px;">${(normWinPct * 100).toFixed(2)}%</span></div>
+    </div>
+
+    ${vegasImplied !== null ? `
+    <div class="audit-final-box" style="margin-top:10px;">
+      <div class="audit-section-title" style="margin-bottom:8px;">Edge vs Vegas</div>
+      <div class="audit-final-row"><span class="lbl">Vegas ML</span><span class="val">${formatML(vegasML)}</span></div>
+      <div class="audit-final-row"><span class="lbl">Vegas implied win%</span><span class="val">${(vegasImplied * 100).toFixed(2)}%</span></div>
+      <div class="audit-final-row"><span class="lbl">Model win%</span><span class="val">${(normWinPct * 100).toFixed(2)}%</span></div>
+      <div class="audit-final-row" style="margin-top:4px;border-top:1px solid var(--border);padding-top:6px;">
+        <span class="lbl" style="font-weight:600;">Edge</span>
+        <span class="val" style="font-size:15px;color:${edge > 0.02 ? '#4ade80' : edge < -0.02 ? '#f87171' : 'var(--text)'}">${edge > 0 ? '+' : ''}${(edge * 100).toFixed(2)}%</span>
+      </div>
+    </div>` : `<div style="margin-top:10px;font-size:12px;color:var(--text3);font-style:italic;">Enter Vegas ML lines to see edge calculation.</div>`}
+  `;
+}
+
+function buildAuditHTML(g, awayTeam, homeTeam) {
+  return `
+    <div class="audit-cols">
+      <div>${buildTeamAuditHTML(awayTeam, g, 'away')}</div>
+      <div>${buildTeamAuditHTML(homeTeam, g, 'home')}</div>
+    </div>
+  `;
+}
 </script>
 </body>
 </html>
