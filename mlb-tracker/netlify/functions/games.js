@@ -116,11 +116,9 @@ exports.handler = async function(event, context) {
         if (!awayAbbr || !homeAbbr) continue;
 
         const awayLineup = (g.lineups?.awayPlayers || [])
-          .filter(p => p.allPositions?.some(pos => pos.abbreviation !== 'P'))
-          .slice(0, 9).map(p => p.fullName);
+          .slice(0, 9).map(p => p.fullName).filter(Boolean);
         const homeLineup = (g.lineups?.homePlayers || [])
-          .filter(p => p.allPositions?.some(pos => pos.abbreviation !== 'P'))
-          .slice(0, 9).map(p => p.fullName);
+          .slice(0, 9).map(p => p.fullName).filter(Boolean);
 
         const awaySP = g.teams?.away?.probablePitcher?.fullName || null;
         const homeSP  = g.teams?.home?.probablePitcher?.fullName || null;
