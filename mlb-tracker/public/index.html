@@ -543,7 +543,7 @@ function calcTeamDay(team, lineup, spName, roster) {
     const isRookie = war25 === null;
     const war25val = war25 !== null ? war25 : (war26 || 0);
     const delta = war26 !== null ? (war26 - war25val) : 0;
-    const weightedDelta = delta * w;
+    const weightedDelta = war26 !== null ? (war26 * w) - war25val : 0;
     offDelta += weightedDelta;
     auditBatters.push({
       name: playerName,
