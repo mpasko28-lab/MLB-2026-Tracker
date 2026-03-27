@@ -296,6 +296,7 @@
 
   <div class="controls">
     <button class="btn btn-sm" onclick="checkOutcomes()"><span id="outcomes-spinner" style="display:none" class="loading"></span>Check Outcomes</button>
+    <button class="btn btn-sm btn-outline" onclick="clearBetLog()">Clear Log</button>
   </div>
 
   <div class="table-wrap">
@@ -356,7 +357,7 @@
     <div>
       <div class="section-title">2026 Hitter Projections (RoS)</div>
       <div class="upload-zone" id="zone-hit26" onclick="document.getElementById('input-hit26').click()">
-        <div class="upload-icon">📊</div>
+        <div class="upload-icon">🏏</div>
         <div class="upload-title">Hitter WAR Projections</div>
         <div class="upload-sub">Name, Team, WAR (CSV)</div>
         <input type="file" class="upload-input" id="input-hit26" accept=".csv" onchange="handleUpload('hit26', this)">
@@ -532,9 +533,25 @@ function calcTeamDay(team, lineup, spName, roster) {
 
   const baseRS = team.rs;
   const baseRA = team.ra;
+  const teamAbbr = team.abbr;
+
+  // --- Build team-level 2025 baselines ---
+  // Team offensive WAR'25 (all hitters on this team)
+  const teamHitWar25 = HITTER_25.filter(p => p.team === teamAbbr).reduce((s, p) => s + p.war, 0);
+  // Team SP WAR'25 (starting pitchers only — those in PITCHER_25 who started: proxy = all pitchers on team)
+  // We use a per-slot baseline: team total SP WAR'25 / 4.86 (162 * 1/5 * 0.15 correction factor)
+  // Simpler: sum all pitchers in PITCHER_25 for team, divide by 32.4 per slot
+  const teamSpWar25Total = PITCHER_25.filter(p => p.team === teamAbbr).reduce((s, p) => s + p.war, 0);
+  // Team bullpen WAR'25 total (same pool — we treat all pitchers as bullpen pool minus SP slot contribution)
+  const teamBullWar25Total = teamSpWar25Total; // same pool, different usage — see below
+  // Team bullpen WAR'26 total (from Steamer projections)
+  const teamBullWar26Total = PITCHER_26.filter(p => p.team === teamAbbr).reduce((s, p) => s + p.war, 0);
 
   // --- OFFENSE ---
-  let offDelta = 0;
+  // Change 4: Compare weighted WAR'26 lineup sum vs team 2025 offensive WAR / 2
+  // (team WAR / 18 * 9 = team WAR / 2 = one full lineup baseline)
+  const teamOffBaseline = teamHitWar25 / 2;
+  let weightedLineupWar26 = 0;
   const auditBatters = [];
   lineup.forEach((playerName, idx) => {
     const w = BATTING_ORDER_WEIGHTS[idx] || 1.0;
@@ -544,7 +561,8 @@ function calcTeamDay(team, lineup, spName, roster) {
     const war25val = war25 !== null ? war25 : (war26 || 0);
     const delta = war26 !== null ? (war26 - war25val) : 0;
     const weightedDelta = war26 !== null ? (war26 * w) - war25val : 0;
-    offDelta += weightedDelta;
+    const weightedWar26 = war26 !== null ? war26 * w : 0;
+    weightedLineupWar26 += weightedWar26;
     auditBatters.push({
       name: playerName,
       slot: idx + 1,
@@ -558,16 +576,21 @@ function calcTeamDay(team, lineup, spName, roster) {
       isRookie
     });
   });
+  const offDelta = weightedLineupWar26 - teamOffBaseline;
   const offRunAdj = offDelta * 10;
   const newRS = baseRS + offRunAdj;
 
   // --- PITCHING: Starter ---
+  // Change 3: Compare today's SP WAR'26 vs team's avg rotation slot baseline from 2025
+  // Baseline = teamSpWar25Total / 32.4  (32.4 = 162 games * 1/5 rotation)
   const spWar26Raw = findWar26(spName, PITCHER_26, uploadedPit26);
   const spWar26 = spWar26Raw || 0;
   const spWar25 = findWar25(spName, PITCHER_25);
   const spWar26Norm = spWar26 * 5;
   const spWar25Norm = spWar25 !== null ? spWar25 * 5 : null;
-  const spDelta = spWar25 !== null ? (spWar26 - spWar25) * 5 : 0;
+  const teamSpSlotBaseline = teamSpWar25Total / 32.4;
+  // Delta = (SP WAR'26 - team slot baseline) × 5 (scale to per-start contribution)
+  const spDelta = (spWar26 - teamSpSlotBaseline) * 5;
   const auditStarter = {
     name: spName,
     war26: spWar26Raw,
@@ -580,20 +603,21 @@ function calcTeamDay(team, lineup, spName, roster) {
   };
 
   // --- PITCHING: Bullpen ---
-  let bullpenDelta = 0;
+  // Change 2: Team-level bullpen WAR'26 vs team bullpen WAR'25 as a single delta
+  // bullpenDelta = (team bullpen WAR'26 total - team bullpen WAR'25 total)
+  // Divide by a per-game factor (162) to get per-game contribution, then * 10 runs/WAR already in pitRunAdj
+  const bullpenDelta = (teamBullWar26Total - teamBullWar25Total) / 162;
   const auditBullpen = [];
   if (roster && roster.rp && roster.rp.length > 0) {
     for (const rp of roster.rp) {
       const rpWar26Raw = findWar26(rp.name, PITCHER_26, uploadedPit26);
       const rpWar26 = rpWar26Raw || 0;
       const rpWar25 = findWar25(rp.name, PITCHER_25);
-      const d = rpWar25 !== null ? (rpWar26 - rpWar25) : 0;
-      bullpenDelta += d;
       auditBullpen.push({
         name: rp.name,
         war26: rpWar26Raw,
         war25: rpWar25,
-        delta: d,
+        delta: rpWar25 !== null ? (rpWar26 - rpWar25) : 0,
         found26: rpWar26Raw !== null,
         found25: rpWar25 !== null
       });
@@ -825,6 +849,8 @@ function computeAndLogGame(g, rosters) {
           matchup: `${awayTeam.name} @ ${homeTeam.name}`,
           betOn: betTeam,
           betAbbr,
+          awayAbbr: g.awayAbbr,
+          homeAbbr: g.homeAbbr,
           modelPct: (betWinPct * 100).toFixed(1),
           vegasPct: (mlToImplied(betML) * 100).toFixed(1),
           edge: (edge * 100).toFixed(1),
@@ -845,8 +871,14 @@ function renderGameCard(g, rosters, container) {
   const homeTeam = TEAMS.find(t => t.abbr === g.homeAbbr);
   if (!awayTeam || !homeTeam) return;
 
-  // Run model (no-op if already computed — won't double-log)
-  computeAndLogGame(g, rosters);
+  const isLive = g.status === 'Live';
+  const isFinal = g.status === 'Final';
+  const isInProgress = isLive || isFinal;
+
+  // Run model only for Preview games — freeze odds/edge at first pitch for Live/Final
+  if (!isInProgress) {
+    computeAndLogGame(g, rosters);
+  }
 
   const hasLineup = g.awayLineup && g.homeLineup && g.awayLineup.length > 0 && g.homeLineup.length > 0;
   const needsManualML = g.mlSource === 'manual';
@@ -859,7 +891,11 @@ function renderGameCard(g, rosters, container) {
 
   // Header flag
   let flagHtml = '';
-  if (!hasLineup) {
+  if (isFinal) {
+    flagHtml = `<span class="game-flag no-lineup">FINAL</span>`;
+  } else if (isLive) {
+    flagHtml = `<span class="game-flag no-lineup">🔴 LIVE</span>`;
+  } else if (!hasLineup) {
     flagHtml = `<span class="game-flag no-lineup">NO LINEUP</span>`;
   } else if (g._betFlag) {
     flagHtml = `<span class="game-flag">⚡ BET</span>`;
@@ -1318,9 +1354,10 @@ async function checkOutcomes() {
       if (data.final && data.awayScore !== undefined) {
         const awayScore = data.awayScore;
         const homeScore = data.homeScore;
-        const g = dailyGames.find(x => x.gameId === b.gameId);
-        if (g) {
-          const betIsAway = b.betAbbr === g.awayAbbr;
+        // Use awayAbbr/homeAbbr stored on the entry (works across page reloads)
+        const awayAbbr = b.awayAbbr || (dailyGames.find(x => x.gameId === b.gameId) || {}).awayAbbr;
+        if (awayAbbr) {
+          const betIsAway = b.betAbbr === awayAbbr;
           const betWon = betIsAway ? awayScore > homeScore : homeScore > awayScore;
           b.result = betWon ? 'W' : 'L';
           b.score = `${awayScore}-${homeScore}`;
@@ -1331,6 +1368,14 @@ async function checkOutcomes() {
   saveState();
   buildBetLog();
   spinner.style.display = 'none';
+}
+
+function clearBetLog() {
+  if (!confirm('Clear all bet log entries?')) return;
+  betLog = betLog.filter(b => b.type === 'season');
+  seenGameIds.clear();
+  saveState();
+  buildBetLog();
 }
 
 // ============================================================ UPLOAD
