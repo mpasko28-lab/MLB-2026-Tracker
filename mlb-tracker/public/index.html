@@ -535,27 +535,19 @@ function calcTeamDay(team, lineup, spName, roster) {
   const baseRA = team.ra;
   const teamAbbr = team.abbr;
 
-  // --- Build team-level 2025 baselines ---
-  // Team offensive WAR'25 (all hitters on this team)
-  const teamHitWar25 = HITTER_25.filter(p => p.team === teamAbbr).reduce((s, p) => s + p.war, 0);
-  // Team SP WAR'25 (starting pitchers only — those in PITCHER_25 who started: proxy = all pitchers on team)
-  // We use a per-slot baseline: team total SP WAR'25 / 4.86 (162 * 1/5 * 0.15 correction factor)
-  // Simpler: sum all pitchers in PITCHER_25 for team, divide by 32.4 per slot
+    // --- Build team-level 2025 baselines ---
   const currentSpNames = new Set((roster?.sp || []).map(p => p.name));
-  const teamSpWar25Total = PITCHER_25
-    .filter(p => currentRpNames.has(p.name))
-    .reduce((s, p) => s + p.war, 0);
-  const teamBullWar25Total = PITCHER_25
-    .filter(p => p.team === teamAbbr && !currentSpNames.has(p.name))
-    .reduce((s, p) => s + p.war, 0);
   const currentRpNames = new Set((roster?.rp || []).map(p => p.name));
-  const teamBullWar26Total = PITCHER_26
+  const teamSpWar25Total = PITCHER_25
     .filter(p => currentSpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
-  // --- OFFENSE ---
-  // Change 4: Compare weighted WAR'26 lineup sum vs team 2025 offensive WAR / 2
-  // (team WAR / 18 * 9 = team WAR / 2 = one full lineup baseline)
-const AVG_BATTING_WEIGHT = BATTING_ORDER_WEIGHTS.reduce((s, w) => s + w, 0) / BATTING_ORDER_WEIGHTS.length;
+  const teamBullWar25Total = PITCHER_25
+    .filter(p => currentRpNames.has(p.name))
+    .reduce((s, p) => s + p.war, 0);
+  const teamBullWar26Total = PITCHER_26
+    .filter(p => currentRpNames.has(p.name))
+    .reduce((s, p) => s + p.war, 0);
+  const AVG_BATTING_WEIGHT = BATTING_ORDER_WEIGHTS.reduce((s, w) => s + w, 0) / BATTING_ORDER_WEIGHTS.length;
   const teamOffBaseline = HITTER_25
     .filter(p => p.team === teamAbbr)
     .sort((a, b) => b.war - a.war)
