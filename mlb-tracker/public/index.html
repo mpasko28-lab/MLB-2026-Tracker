@@ -543,14 +543,14 @@ function calcTeamDay(team, lineup, spName, roster) {
   // Simpler: sum all pitchers in PITCHER_25 for team, divide by 32.4 per slot
   const currentSpNames = new Set((roster?.sp || []).map(p => p.name));
   const teamSpWar25Total = PITCHER_25
-    .filter(p => p.team === teamAbbr && currentSpNames.has(p.name))
+    .filter(p => currentRpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
   const teamBullWar25Total = PITCHER_25
     .filter(p => p.team === teamAbbr && !currentSpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
   const currentRpNames = new Set((roster?.rp || []).map(p => p.name));
   const teamBullWar26Total = PITCHER_26
-    .filter(p => p.team === teamAbbr && currentRpNames.has(p.name))
+    .filter(p => currentSpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
   // --- OFFENSE ---
   // Change 4: Compare weighted WAR'26 lineup sum vs team 2025 offensive WAR / 2
