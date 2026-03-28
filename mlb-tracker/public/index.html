@@ -539,13 +539,13 @@ function calcTeamDay(team, lineup, spName, roster) {
   const currentSpNames = new Set((roster?.sp || []).map(p => p.name));
   const currentRpNames = new Set((roster?.rp || []).map(p => p.name));
   const teamSpWar25Total = PITCHER_25
-    .filter(p => currentSpNames.has(p.name))
+    .filter(p => p.team === teamAbbr && currentSpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
   const teamBullWar25Total = PITCHER_25
     .filter(p => currentRpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
   const teamBullWar26Total = PITCHER_26
-    .filter(p => currentRpNames.has(p.name))
+    .filter(p => p.team === teamAbbr && currentRpNames.has(p.name))
     .reduce((s, p) => s + p.war, 0);
   const AVG_BATTING_WEIGHT = BATTING_ORDER_WEIGHTS.reduce((s, w) => s + w, 0) / BATTING_ORDER_WEIGHTS.length;
   const teamOffBaseline = HITTER_25
