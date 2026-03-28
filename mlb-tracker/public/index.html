@@ -541,16 +541,26 @@ function calcTeamDay(team, lineup, spName, roster) {
   // Team SP WAR'25 (starting pitchers only — those in PITCHER_25 who started: proxy = all pitchers on team)
   // We use a per-slot baseline: team total SP WAR'25 / 4.86 (162 * 1/5 * 0.15 correction factor)
   // Simpler: sum all pitchers in PITCHER_25 for team, divide by 32.4 per slot
-  const teamSpWar25Total = PITCHER_25.filter(p => p.team === teamAbbr).reduce((s, p) => s + p.war, 0);
-  // Team bullpen WAR'25 total (same pool — we treat all pitchers as bullpen pool minus SP slot contribution)
-  const teamBullWar25Total = teamSpWar25Total; // same pool, different usage — see below
-  // Team bullpen WAR'26 total (from Steamer projections)
-  const teamBullWar26Total = PITCHER_26.filter(p => p.team === teamAbbr).reduce((s, p) => s + p.war, 0);
-
+  const currentSpNames = new Set((roster?.sp || []).map(p => p.name));
+  const teamSpWar25Total = PITCHER_25
+    .filter(p => p.team === teamAbbr && currentSpNames.has(p.name))
+    .reduce((s, p) => s + p.war, 0);
+  const teamBullWar25Total = PITCHER_25
+    .filter(p => p.team === teamAbbr && !currentSpNames.has(p.name))
+    .reduce((s, p) => s + p.war, 0);
+  const currentRpNames = new Set((roster?.rp || []).map(p => p.name));
+  const teamBullWar26Total = PITCHER_26
+    .filter(p => p.team === teamAbbr && currentRpNames.has(p.name))
+    .reduce((s, p) => s + p.war, 0);
   // --- OFFENSE ---
   // Change 4: Compare weighted WAR'26 lineup sum vs team 2025 offensive WAR / 2
   // (team WAR / 18 * 9 = team WAR / 2 = one full lineup baseline)
-  const teamOffBaseline = teamHitWar25 / 2;
+const AVG_BATTING_WEIGHT = BATTING_ORDER_WEIGHTS.reduce((s, w) => s + w, 0) / BATTING_ORDER_WEIGHTS.length;
+  const teamOffBaseline = HITTER_25
+    .filter(p => p.team === teamAbbr)
+    .sort((a, b) => b.war - a.war)
+    .slice(0, 9)
+    .reduce((s, p) => s + p.war, 0) * AVG_BATTING_WEIGHT;
   let weightedLineupWar26 = 0;
   const auditBatters = [];
   lineup.forEach((playerName, idx) => {
@@ -588,9 +598,7 @@ function calcTeamDay(team, lineup, spName, roster) {
   const spWar25 = findWar25(spName, PITCHER_25);
   const spWar26Norm = spWar26 * 5;
   const spWar25Norm = spWar25 !== null ? spWar25 * 5 : null;
-  const teamSpSlotBaseline = teamSpWar25Total / 32.4;
-  // Delta = (SP WAR'26 - team slot baseline) × 5 (scale to per-start contribution)
-  const spDelta = (spWar26 - teamSpSlotBaseline) * 5;
+  const spDelta = (spWar26 * 5) - teamSpWar25Total;
   const auditStarter = {
     name: spName,
     war26: spWar26Raw,
