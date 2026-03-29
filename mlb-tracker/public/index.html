@@ -633,11 +633,12 @@ function calcTeamDay(team, lineup, spName, roster) {
     audit: {
       baseRS, baseRA,
       batters: auditBatters,
-      offDelta, offRunAdj,
+      offDelta, offRunAdj, teamOffBaseline,
       starter: auditStarter,
       bullpen: auditBullpen,
       bullpenDelta,
-      spDelta,
+      teamBullWar25Total, teamBullWar26Total,
+      spDelta, teamSpWar25Total,
       pitRunAdj,
       newRS, newRA,
       winPct
@@ -1523,21 +1524,19 @@ function buildTeamAuditHTML(team, g, side) {
   // Batters table
   const batterRows = audit.batters.map(b => {
     const nameClass = !b.found26 ? 'not-found' : '';
-    const w25 = b.war25 !== null ? b.war25.toFixed(1) : (b.isRookie ? 'new' : '—');
     const w26 = b.war26 !== null ? b.war26.toFixed(1) : '—';
-    const dClass = b.weightedDelta > 0.005 ? 'pos' : b.weightedDelta < -0.005 ? 'neg' : '';
+    const wtd = b.war26 !== null ? (b.war26 * b.weight).toFixed(2) : '—';
     return `<div class="audit-batter-row">
       <span class="audit-batter-slot">${b.slot}</span>
       <span class="audit-batter-name ${nameClass}" title="${b.name}">${b.name}</span>
-      <span class="audit-num">${w25}</span>
+      <span class="audit-num">${b.weight.toFixed(2)}</span>
       <span class="audit-num">${w26}</span>
-      <span class="audit-num ${dClass}">${fmtSign(b.weightedDelta)}</span>
+      <span class="audit-num">${wtd}</span>
     </div>`;
   }).join('');
 
   // Bullpen rows
   const bullpenRows = audit.bullpen.map((rp, i) => {
-    const dClass = rp.delta > 0.005 ? 'pos' : rp.delta < -0.005 ? 'neg' : '';
     const w25 = rp.war25 !== null ? rp.war25.toFixed(1) : '—';
     const w26 = rp.war26 !== null ? rp.war26.toFixed(1) : '—';
     return `<div class="audit-batter-row" style="font-size:10px;">
@@ -1545,14 +1544,12 @@ function buildTeamAuditHTML(team, g, side) {
       <span class="audit-batter-name${!rp.found26 ? ' not-found' : ''}" title="${rp.name}">${rp.name}</span>
       <span class="audit-num">${w25}</span>
       <span class="audit-num">${w26}</span>
-      <span class="audit-num ${dClass}">${fmtSign(rp.delta)}</span>
     </div>`;
   }).join('');
 
   const bullpenId = `bullpen-${side}-${g.gameId}`;
 
   const spFound26 = audit.starter.found26 ? '' : ' <span style="color:#facc15;font-size:9px;">NOT FOUND</span>';
-  const spFound25 = audit.starter.found25 ? '' : ' <span style="color:#facc15;font-size:9px;">ROOKIE</span>';
 
   return `
     <div class="audit-team-label">${team.name}</div>
@@ -1566,10 +1563,11 @@ function buildTeamAuditHTML(team, g, side) {
     <div class="audit-section">
       <div class="audit-section-title">Lineup WAR Adjustments</div>
       <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;">
-        <span></span><span>Player</span><span style="text-align:right">WAR'25</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Δ·Wt</span>
+        <span></span><span>Player</span><span style="text-align:right">Wt</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Wtd</span>
       </div>
       ${batterRows}
-      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Total weighted Δ WAR</span><span class="audit-row-val ${valClass(audit.offDelta)}">${fmtSign(audit.offDelta)}</span></div>
+      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Team top-9 WAR'25 baseline (×1.031)</span><span class="audit-row-val">${fmt1(audit.teamOffBaseline)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Lineup wtd WAR'26 vs baseline</span><span class="audit-row-val ${valClass(audit.offDelta)}">${fmtSign(audit.offDelta)}</span></div>
       <div class="audit-row"><span class="audit-row-label">Run adjustment (Δ × 10)</span><span class="audit-row-val ${valClass(audit.offRunAdj)}">${fmtSign(audit.offRunAdj)}</span></div>
       <div class="audit-row"><span class="audit-row-label"><strong>Adjusted Runs Scored</strong></span><span class="audit-row-val"><strong>${fmt1(audit.newRS)}</strong></span></div>
     </div>
@@ -1577,22 +1575,29 @@ function buildTeamAuditHTML(team, g, side) {
     <div class="audit-section">
       <div class="audit-section-title">Pitching Adjustments</div>
       <div class="audit-row">
-        <span class="audit-row-label">SP: ${audit.starter.name}${spFound26}${spFound25}</span>
+        <span class="audit-row-label">SP: ${audit.starter.name}${spFound26}</span>
       </div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'25</span><span class="audit-row-val">${audit.starter.war25 !== null ? audit.starter.war25.toFixed(1) : '—'}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 (raw)</span><span class="audit-row-val">${audit.starter.war26 !== null ? audit.starter.war26.toFixed(1) : '—'}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'25 ×5 (norm.)</span><span class="audit-row-val">${audit.starter.war25Norm !== null ? audit.starter.war25Norm.toFixed(1) : '—'}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 ×5 (norm.)</span><span class="audit-row-val">${fmt1(audit.starter.war26Norm)}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">SP Δ WAR (norm.)</span><span class="audit-row-val ${valClass(audit.spDelta)}">${fmtSign(audit.spDelta)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26</span><span class="audit-row-val">${audit.starter.war26 !== null ? audit.starter.war26.toFixed(1) : '—'}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 ×5</span><span class="audit-row-val">${fmt1(audit.starter.war26Norm)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">Team SP WAR'25 total</span><span class="audit-row-val">${fmt1(audit.teamSpWar25Total)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">SP Δ (WAR'26×5 − team'25)</span><span class="audit-row-val ${valClass(audit.spDelta)}">${fmtSign(audit.spDelta)}</span></div>
       ${audit.bullpen.length > 0 ? `
       <div class="audit-row" style="margin-top:6px;">
-        <span class="audit-row-label">Bullpen Δ WAR (${audit.bullpen.length} pitchers)</span>
+        <span class="audit-row-label">Bullpen WAR'26 total</span>
+        <span class="audit-row-val">${fmt1(audit.teamBullWar26Total)}</span>
+      </div>
+      <div class="audit-row">
+        <span class="audit-row-label">Bullpen WAR'25 total</span>
+        <span class="audit-row-val">${fmt1(audit.teamBullWar25Total)}</span>
+      </div>
+      <div class="audit-row">
+        <span class="audit-row-label">Bullpen Δ WAR</span>
         <span class="audit-row-val ${valClass(audit.bullpenDelta)}">${fmtSign(audit.bullpenDelta)}</span>
       </div>
       <div class="audit-bullpen-toggle" onclick="toggleBullpen('${bullpenId}')">▶ Show bullpen detail</div>
       <div class="audit-bullpen-list" id="${bullpenId}">
         <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;margin-top:4px;">
-          <span></span><span>Pitcher</span><span style="text-align:right">WAR'25</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Δ</span>
+          <span></span><span>Pitcher</span><span style="text-align:right">WAR'25</span><span style="text-align:right">WAR'26</span>
         </div>
         ${bullpenRows}
       </div>` : '<div class="audit-row"><span class="audit-row-label" style="color:var(--text3);font-style:italic;">No bullpen data available</span></div>'}
