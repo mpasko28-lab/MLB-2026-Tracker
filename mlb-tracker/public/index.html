@@ -952,10 +952,13 @@ function renderGameCard(g, rosters, container) {
 
   const card = document.createElement('div');
   card.className = 'game-card' + (g._betFlag ? ' bet-flag' : '');
-  if (g._debugInfo) {
+  {
     const dbg = document.createElement('div');
     dbg.style.cssText = 'font-size:10px;color:red;padding:4px;word-break:break-all;';
-    dbg.textContent = g._debugInfo;
+    const hl = g.awayLineup ? g.awayLineup.length : 'null';
+    const hsp = g.awaySP || 'null';
+    const awayT = TEAMS.find(t => t.abbr === g.awayAbbr);
+    dbg.textContent = `DBG: awayLineup=${hl} awaySP=${hsp} awayTeam=${awayT?'found':'MISSING'} _awayWin=${g._awayWin} _debugInfo=${g._debugInfo||'none'}`;
     card.appendChild(dbg);
   }
 
