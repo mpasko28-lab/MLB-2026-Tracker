@@ -459,6 +459,16 @@ function loadState() {
       betLog = s.betLog || [];
       seenGameIds = new Set(s.seenGameIds || []);
     }
+    const savedHit = localStorage.getItem('mlb2026_hit26');
+    if (savedHit) {
+      uploadedHit26 = JSON.parse(savedHit);
+      document.getElementById('zone-hit26').classList.add('loaded');
+    }
+    const savedPit = localStorage.getItem('mlb2026_pit26');
+    if (savedPit) {
+      uploadedPit26 = JSON.parse(savedPit);
+      document.getElementById('zone-pit26').classList.add('loaded');
+    }
   } catch(e) {}
 }
 
@@ -700,7 +710,15 @@ function buildSeasonTable() {
     html += '<div class="table-wrap"><table><thead><tr>';
     html += '<th>Team</th><th>W</th><th>L</th><th>Pace</th><th>Proj Wins</th><th>Vegas O/U</th><th>Diff</th><th>Bet</th><th>Season Result</th>';
     html += '</tr></thead><tbody>';
-    for (const t of TEAMS.filter(x => x.div === div)) {
+    const divTeams = TEAMS.filter(x => x.div === div).slice().sort((a, b) => {
+      const sa = standings[a.abbr] || {w:0, l:0};
+      const sb = standings[b.abbr] || {w:0, l:0};
+      const gpA = sa.w + sa.l, gpB = sb.w + sb.l;
+      const paceA = gpA > 0 ? (sa.w / gpA) * 162 : a.proj;
+      const paceB = gpB > 0 ? (sb.w / gpB) * 162 : b.proj;
+      return paceB - paceA;
+    });
+    for (const t of divTeams) {
       const s = standings[t.abbr] || {w:0, l:0};
       const gp = s.w + s.l;
       const pace = gp > 0 ? ((s.w / gp) * 162).toFixed(1) : '—';
@@ -1047,7 +1065,7 @@ function mlToReturn(ml) {
 
 function calcPnlSeries(resolvedBets) {
   // resolvedBets: sorted chronologically, only W or L, each counted once
-  // Returns { points: [{label, fund}], finalFund, totalReturn, roi }
+  // Wager sizing compounds — each wager is % of current fund balance
   const STARTING = 100;
   let fund = STARTING;
   const points = [{ label: 'Start', fund: STARTING }];
@@ -1055,7 +1073,7 @@ function calcPnlSeries(resolvedBets) {
   for (const b of resolvedBets) {
     const bk = edgeBucket(parseFloat(b.edge) / 100);
     const wagerPct = WAGER_PCT[bk] || 0.001;
-    const wager = fund * wagerPct;
+    const wager = fund * wagerPct; // always based on current fund, not starting $100
     const ret = mlToReturn(b.vegasML);
 
     if (b.result === 'W') {
@@ -1344,8 +1362,16 @@ function handleUpload(type, input) {
         parsed.push({name, team, war});
       }
     }
-    if (type === 'hit26') { uploadedHit26 = parsed; document.getElementById('zone-hit26').classList.add('loaded'); }
-    if (type === 'pit26') { uploadedPit26 = parsed; document.getElementById('zone-pit26').classList.add('loaded'); }
+    if (type === 'hit26') {
+      uploadedHit26 = parsed;
+      document.getElementById('zone-hit26').classList.add('loaded');
+      try { localStorage.setItem('mlb2026_hit26', JSON.stringify(parsed)); } catch(e) {}
+    }
+    if (type === 'pit26') {
+      uploadedPit26 = parsed;
+      document.getElementById('zone-pit26').classList.add('loaded');
+      try { localStorage.setItem('mlb2026_pit26', JSON.stringify(parsed)); } catch(e) {}
+    }
     renderUploadSummary(type, parsed);
   };
   reader.readAsText(file);
