@@ -574,8 +574,8 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
   const parkFactor = PARK_FACTORS[homeTeamAbbr] || 1.0;
   const hfaRS = isHomeTeam ? 20.25 : 0;
   const hfaRA = isHomeTeam ? -20.25 : 0;
-  const baseRS = (team.rs + hfaRS) * parkFactor;
-  const baseRA = (team.ra + hfaRA) * parkFactor;
+  const baseRS = ((parseFloat(team.rs) || 700) + hfaRS) * parkFactor;
+  const baseRA = ((parseFloat(team.ra) || 700) + hfaRA) * parkFactor;
 
   // Change 1: Use corrected 2025 team WAR totals from Excel
   const teamOff25 = TEAM_OFF_WAR_25[teamAbbr] || 0;
@@ -584,10 +584,10 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
   // Change 2: Lineup — top 9 projected hitters (Steamer) vs actual lineup (raw sums, no weights)
   const teamHitterSrc = uploadedHit26 || HITTER_26;
   const teamLineupBaseline = teamHitterSrc
-    .filter(p => p.team === teamAbbr)
+    .filter(p => p.team === teamAbbr && !isNaN(parseFloat(p.war)))
     .sort((a, b) => b.war - a.war)
     .slice(0, 9)
-    .reduce((s, p) => s + p.war, 0);
+    .reduce((s, p) => s + (parseFloat(p.war) || 0), 0);
 
   let lineupWar26Sum = 0;
   const auditBatters = [];
@@ -616,10 +616,10 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
   // Change 3: SP — top 5 Steamer projected SPs vs today's starter × 5
   const teamPitcherSrc = uploadedPit26 || PITCHER_26;
   const teamSpProj = teamPitcherSrc
-    .filter(p => p.team === teamAbbr)
+    .filter(p => p.team === teamAbbr && !isNaN(parseFloat(p.war)))
     .sort((a, b) => b.war - a.war)
     .slice(0, 5)
-    .reduce((s, p) => s + p.war, 0);
+    .reduce((s, p) => s + (parseFloat(p.war) || 0), 0);
 
   const spWar26Raw = findWar26(spName, PITCHER_26, uploadedPit26);
   const spWar26 = spWar26Raw || 0;
@@ -837,6 +837,7 @@ function computeAndLogGame(g, rosters) {
   g._awayAudit = awayResult.audit;
   g._homeAudit = homeResult.audit;
   const totalPct = awayResult.winPct + homeResult.winPct;
+  if (!totalPct || isNaN(totalPct)) return g;
   const awayWinPct = awayResult.winPct / totalPct;
   const homeWinPct = homeResult.winPct / totalPct;
 
@@ -971,10 +972,10 @@ function renderGameCard(g, rosters, container) {
       : '';
 
   // Win % display
-  const awayPctHtml = hasLineup && g._awayWin !== null
+  const awayPctHtml = hasLineup && g._awayWin !== null && !isNaN(g._awayWin)
     ? `<div class="team-pct ${awayHigher?'higher':'lower'}">${(g._awayWin*100).toFixed(1)}%</div>`
     : '<div class="team-pct" style="color:var(--text3)">—</div>';
-  const homePctHtml = hasLineup && g._homeWin !== null
+  const homePctHtml = hasLineup && g._homeWin !== null && !isNaN(g._homeWin)
     ? `<div class="team-pct ${homeHigher?'higher':'lower'}">${(g._homeWin*100).toFixed(1)}%</div>`
     : '<div class="team-pct" style="color:var(--text3)">—</div>';
 
