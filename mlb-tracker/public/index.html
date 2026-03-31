@@ -264,8 +264,8 @@
     <span class="status-msg" id="daily-status"></span>
   </div>
   <div class="note" id="daily-note">
-    Click "Load Today's Games" to fetch today's MLB lineups and run the model. Vegas ML lines are used to calculate edge. Games without a posted lineup will not be flagged as bets.
-    <br><br>⚾ Batting order position weights are applied: 1st (×1.16), 2nd (×1.12), 3rd (×1.09), 4th (×1.06), 5th (×1.03), 6th (×1.00), 7th (×0.97), 8th (×0.94), 9th (×0.91).
+    Click "Load Today's Games" to fetch today's MLB lineups and run the model. Vegas ML lines from The Odds API are used to calculate edge. Games without a posted lineup will not be flagged as bets.
+    <br><br>⚾ Model compares today's starting lineup WAR'26 sum vs team's top-9 Steamer projections, and today's SP WAR'26×5 vs team's top-5 Steamer SP projections. Park factors and home field advantage (+20.25 RS / −20.25 RA) are applied.
   </div>
   <div class="games-grid" id="games-container"></div>
 </div>
@@ -526,105 +526,110 @@ const BUCKET_ORDER = ['0–3%','3–6%','6–9%','9–11%','11–13%','13–15%'
 
 // ============================================================ DAILY MODEL
 
-function calcTeamDay(team, lineup, spName, roster) {
+// Change 1: Corrected 2025 team WAR totals from Excel (columns I & J of 2026 Win Proj.)
+const TEAM_OFF_WAR_25 = {
+  BAL:14.2, BOS:25.1, NYY:34.3, TBR:15.9, TOR:32.5,
+  CHW:6.1,  CLE:13.5, DET:21.9, KCR:14.7, MIN:15.9,
+  HOU:20.7, LAA:6.7,  ATH:20.7, SEA:26.5, TEX:15.4,
+  ATL:19.3, MIA:16.4, NYM:29.1, PHI:26.9, WSN:8.5,
+  CHC:31.2, CIN:13.2, MIL:28.1, PIT:6.8,  STL:17.9,
+  ARI:26.9, COL:-4.1, LAD:28.9, SDP:20.3, SFG:16.4
+};
+const TEAM_PIT_WAR_25 = {
+  BAL:9.9,  BOS:18.6, NYY:16.5, TBR:15.6, TOR:11.5,
+  CHW:11.5, CLE:16.2, DET:15.1, KCR:17.2, MIN:16.2,
+  HOU:18.0, LAA:6.1,  ATH:8.6,  SEA:14.3, TEX:18.9,
+  ATL:11.4, MIA:9.4,  NYM:17.1, PHI:24.2, WSN:7.2,
+  CHC:13.5, CIN:19.4, MIL:18.6, PIT:18.9, STL:12.8,
+  ARI:8.9,  COL:1.1,  LAD:20.8, SDP:16.5, SFG:15.7
+};
+
+// Changes 5+6: Park factors and home field advantage
+const PARK_FACTORS = {
+  COL:1.28, ATH:1.09, BOS:1.08, CIN:1.06, ARI:1.06, KCR:1.06,
+  TEX:1.05, NYY:1.04, MIN:1.04, PHI:1.03, TOR:1.02, DET:1.01,
+  BAL:0.94, SFG:0.94, SDP:0.92, TBR:0.91, SEA:0.83
+};
+
+function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
   // lineup: array of player names in batting order
   // spName: starting pitcher name
   // roster: {sp: [{name,war26}...], rp: [{name,war26}...]} from MLB API
+  // isHomeTeam: boolean — is this team playing at home?
+  // homeTeamAbbr: abbr of the home team (for park factor)
 
-  const baseRS = team.rs;
-  const baseRA = team.ra;
   const teamAbbr = team.abbr;
 
-    // --- Build team-level 2025 baselines ---
-  const currentSpNames = new Set((roster?.sp || []).map(p => p.name));
-  const currentRpNames = new Set((roster?.rp || []).map(p => p.name));
-  const teamSpWar25Total = PITCHER_25
-    .filter(p => p.team === teamAbbr && currentSpNames.has(p.name))
-    .reduce((s, p) => s + p.war, 0);
-  const teamBullWar25Total = PITCHER_25
-    .filter(p => p.team === teamAbbr && currentRpNames.has(p.name))
-    .reduce((s, p) => s + p.war, 0);
-  const teamBullWar26Total = PITCHER_26
-    .filter(p => p.team === teamAbbr && currentRpNames.has(p.name))
-    .reduce((s, p) => s + p.war, 0);
-  const AVG_BATTING_WEIGHT = BATTING_ORDER_WEIGHTS.reduce((s, w) => s + w, 0) / BATTING_ORDER_WEIGHTS.length;
-  const teamOffBaseline = HITTER_25
+  // Changes 5+6: Park factor and home field advantage
+  const parkFactor = PARK_FACTORS[homeTeamAbbr] || 1.0;
+  const hfaRS = isHomeTeam ? 20.25 : 0;
+  const hfaRA = isHomeTeam ? -20.25 : 0;
+  const baseRS = (team.rs + hfaRS) * parkFactor;
+  const baseRA = (team.ra + hfaRA) * parkFactor;
+
+  // Change 1: Use corrected 2025 team WAR totals from Excel
+  const teamOff25 = TEAM_OFF_WAR_25[teamAbbr] || 0;
+  const teamPit25 = TEAM_PIT_WAR_25[teamAbbr] || 0;
+
+  // Change 2: Lineup — top 9 projected hitters (Steamer) vs actual lineup (raw sums, no weights)
+  const teamHitterSrc = uploadedHit26 || HITTER_26;
+  const teamLineupBaseline = teamHitterSrc
     .filter(p => p.team === teamAbbr)
     .sort((a, b) => b.war - a.war)
     .slice(0, 9)
-    .reduce((s, p) => s + p.war, 0) * AVG_BATTING_WEIGHT;
-  let weightedLineupWar26 = 0;
+    .reduce((s, p) => s + p.war, 0);
+
+  let lineupWar26Sum = 0;
   const auditBatters = [];
   lineup.forEach((playerName, idx) => {
-    const w = BATTING_ORDER_WEIGHTS[idx] || 1.0;
     const war26 = findWar26(playerName, HITTER_26, uploadedHit26);
     const war25 = findWar25(playerName, HITTER_25);
-    const isRookie = war25 === null;
-    const war25val = war25 !== null ? war25 : (war26 || 0);
-    const delta = war26 !== null ? (war26 - war25val) : 0;
-    const weightedDelta = war26 !== null ? (war26 * w) - war25val : 0;
-    const weightedWar26 = war26 !== null ? war26 * w : 0;
-    weightedLineupWar26 += weightedWar26;
+    const effectiveWar26 = war26 !== null ? war26 : 0;
+    lineupWar26Sum += effectiveWar26;
     auditBatters.push({
       name: playerName,
       slot: idx + 1,
-      weight: w,
+      weight: 1.0,
       war25: war25 !== null ? war25 : null,
       war26: war26 !== null ? war26 : null,
-      delta,
-      weightedDelta,
+      delta: effectiveWar26,
+      weightedDelta: effectiveWar26,
       found26: war26 !== null,
       found25: war25 !== null,
-      isRookie
+      isRookie: war25 === null
     });
   });
-  const offDelta = weightedLineupWar26 - teamOffBaseline;
+  const offDelta = lineupWar26Sum - teamLineupBaseline;
   const offRunAdj = offDelta * 10;
   const newRS = baseRS + offRunAdj;
 
-  // --- PITCHING: Starter ---
-  // Change 3: Compare today's SP WAR'26 vs team's avg rotation slot baseline from 2025
-  // Baseline = teamSpWar25Total / 32.4  (32.4 = 162 games * 1/5 rotation)
+  // Change 3: SP — top 5 Steamer projected SPs vs today's starter × 5
+  const teamPitcherSrc = uploadedPit26 || PITCHER_26;
+  const teamSpProj = teamPitcherSrc
+    .filter(p => p.team === teamAbbr)
+    .sort((a, b) => b.war - a.war)
+    .slice(0, 5)
+    .reduce((s, p) => s + p.war, 0);
+
   const spWar26Raw = findWar26(spName, PITCHER_26, uploadedPit26);
   const spWar26 = spWar26Raw || 0;
   const spWar25 = findWar25(spName, PITCHER_25);
   const spWar26Norm = spWar26 * 5;
-  const spWar25Norm = spWar25 !== null ? spWar25 * 5 : null;
-  const spDelta = (spWar26 * 5) - teamSpWar25Total;
+  const spDelta = (spWar26 * 5) - teamSpProj;
   const auditStarter = {
     name: spName,
     war26: spWar26Raw,
     war26Norm: spWar26Norm,
     war25: spWar25,
-    war25Norm: spWar25Norm,
+    war25Norm: spWar25 !== null ? spWar25 * 5 : null,
     delta: spDelta,
     found26: spWar26Raw !== null,
-    found25: spWar25 !== null
+    found25: spWar25 !== null,
+    teamSpProj
   };
 
-  // --- PITCHING: Bullpen ---
-  // Change 2: Team-level bullpen WAR'26 vs team bullpen WAR'25 as a single delta
-  // bullpenDelta = (team bullpen WAR'26 total - team bullpen WAR'25 total)
-  // Divide by a per-game factor (162) to get per-game contribution, then * 10 runs/WAR already in pitRunAdj
-  const bullpenDelta = (teamBullWar26Total - teamBullWar25Total) / 162;
-  const auditBullpen = [];
-  if (roster && roster.rp && roster.rp.length > 0) {
-    for (const rp of roster.rp) {
-      const rpWar26Raw = findWar26(rp.name, PITCHER_26, uploadedPit26);
-      const rpWar26 = rpWar26Raw || 0;
-      const rpWar25 = findWar25(rp.name, PITCHER_25);
-      auditBullpen.push({
-        name: rp.name,
-        war26: rpWar26Raw,
-        war25: rpWar25,
-        delta: rpWar25 !== null ? (rpWar26 - rpWar25) : 0,
-        found26: rpWar26Raw !== null,
-        found25: rpWar25 !== null
-      });
-    }
-  }
-
-  const pitRunAdj = (spDelta + bullpenDelta) * 10;
+  // Change 4: Bullpen removed (baked into season projection)
+  const pitRunAdj = spDelta * 10;
   const newRA = baseRA - pitRunAdj;
   const winPct = pythag(Math.max(newRS, 1), Math.max(newRA, 1));
 
@@ -633,15 +638,17 @@ function calcTeamDay(team, lineup, spName, roster) {
     audit: {
       baseRS, baseRA,
       batters: auditBatters,
-      offDelta, offRunAdj, teamOffBaseline,
+      offDelta, offRunAdj,
+      teamOffBaseline: teamLineupBaseline,
+      teamOff25, teamPit25,
       starter: auditStarter,
-      bullpen: auditBullpen,
-      bullpenDelta,
-      teamBullWar25Total, teamBullWar26Total,
-      spDelta, teamSpWar25Total,
+      bullpen: [],
+      bullpenDelta: 0,
+      teamBullWar25Total: 0, teamBullWar26Total: 0,
+      spDelta, teamSpWar25Total: teamSpProj,
       pitRunAdj,
-      newRS, newRA,
-      winPct
+      newRS, newRA, winPct,
+      parkFactor, isHomeTeam, hfaRS, hfaRA
     }
   };
 }
@@ -807,8 +814,8 @@ function computeAndLogGame(g, rosters) {
 
   if (!hasLineup || !hasSP) return g;
 
-  const awayResult = calcTeamDay(awayTeam, g.awayLineup, g.awaySP, awayRoster);
-  const homeResult = calcTeamDay(homeTeam, g.homeLineup, g.homeSP, homeRoster);
+  const awayResult = calcTeamDay(awayTeam, g.awayLineup, g.awaySP, awayRoster, false, g.homeAbbr);
+  const homeResult = calcTeamDay(homeTeam, g.homeLineup, g.homeSP, homeRoster, true, g.homeAbbr);
   g._awayAudit = awayResult.audit;
   g._homeAudit = homeResult.audit;
   const totalPct = awayResult.winPct + homeResult.winPct;
@@ -876,13 +883,48 @@ function renderGameCard(g, rosters, container) {
   const isFinal = g.status === 'Final';
   const isInProgress = isLive || isFinal;
 
-  // Run model only for Preview games — freeze odds/edge at first pitch for Live/Final
-  if (!isInProgress) {
+  // Run model only if lineup not yet computed (freeze after first computation)
+  // Also freeze Live/Final games
+  if (!isInProgress && g._awayWin === null) {
     computeAndLogGame(g, rosters);
+  } else if (!isInProgress && g._awayWin !== null) {
+    // Win% already computed — re-run edge calculation if ML just became available
+    // but don't recalculate win% (it's frozen once lineup is confirmed)
+    const awayTeam2 = TEAMS.find(t => t.abbr === g.awayAbbr);
+    const homeTeam2 = TEAMS.find(t => t.abbr === g.homeAbbr);
+    if (g.awayML !== null && g.homeML !== null && g._awayEdge === null) {
+      const awayVegas = mlToImplied(g.awayML);
+      const homeVegas = mlToImplied(g.homeML);
+      g._awayEdge = g._awayWin - awayVegas;
+      g._homeEdge = g._homeWin - homeVegas;
+      if (!seenGameIds.has(g.gameId)) {
+        let edge = null, betAbbr = null, betTeam = null;
+        if (g._awayEdge > g._homeEdge && g._awayEdge > 0) {
+          edge = g._awayEdge; betAbbr = g.awayAbbr; betTeam = awayTeam2 ? awayTeam2.name : g.awayAbbr;
+        } else if (g._homeEdge > 0) {
+          edge = g._homeEdge; betAbbr = g.homeAbbr; betTeam = homeTeam2 ? homeTeam2.name : g.homeAbbr;
+        }
+        if (edge !== null) {
+          g._betFlag = true; g._betAbbr = betAbbr; g._edge = edge;
+          const betML = betAbbr === g.awayAbbr ? g.awayML : g.homeML;
+          const betWinPct = betAbbr === g.awayAbbr ? g._awayWin : g._homeWin;
+          seenGameIds.add(g.gameId);
+          betLog.push({
+            type: 'daily', date: g.date, gameId: g.gameId,
+            matchup: `${awayTeam2 ? awayTeam2.name : g.awayAbbr} @ ${homeTeam2 ? homeTeam2.name : g.homeAbbr}`,
+            betOn: betTeam, betAbbr, awayAbbr: g.awayAbbr, homeAbbr: g.homeAbbr,
+            modelPct: (betWinPct * 100).toFixed(1),
+            vegasPct: (mlToImplied(betML) * 100).toFixed(1),
+            edge: (edge * 100).toFixed(1), vegasML: betML, result: 'P', score: '—'
+          });
+          saveState(); buildBetLog();
+        }
+      }
+    }
   }
 
   const hasLineup = g.awayLineup && g.homeLineup && g.awayLineup.length > 0 && g.homeLineup.length > 0;
-  const needsManualML = g.mlSource === 'manual';
+  const needsManualML = false; // Manual ML entry removed
 
   const awayHigher = g._awayWin !== null && g._awayWin > g._homeWin;
   const homeHigher = g._homeWin !== null && g._homeWin > g._awayWin;
@@ -903,13 +945,11 @@ function renderGameCard(g, rosters, container) {
   }
 
   // ML source badge
-  const sourceBadge = needsManualML
-    ? '' // no badge — we'll show inputs instead
-    : g.mlSource === 'odds-api'
-      ? `<span style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-left:auto;">ODDS API</span>`
-      : g.mlSource === 'mlb-api'
-        ? `<span style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-left:auto;">MLB API</span>`
-        : '';
+  const sourceBadge = g.mlSource === 'odds-api'
+    ? `<span style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-left:auto;">ODDS API</span>`
+    : g.mlSource === 'mlb-api'
+      ? `<span style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-left:auto;">MLB API</span>`
+      : '';
 
   // Win % display
   const awayPctHtml = hasLineup && g._awayWin !== null
@@ -924,28 +964,8 @@ function renderGameCard(g, rosters, container) {
     ? `<span class="${val>0?'edge-pos':'edge-neg'}">${val>0?'+':''}${(val*100).toFixed(1)}%</span>`
     : '<span style="color:var(--text3)">—</span>';
 
-  // ML section: auto-filled or manual inputs
-  let mlSection = '';
-  if (needsManualML && hasLineup) {
-    mlSection = `
-      <div class="detail-item" style="grid-column:1/-1;">
-        <div class="detail-label" style="margin-bottom:6px;">Enter Vegas ML lines manually</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;">
-          <div>
-            <div style="font-size:10px;color:var(--text3);margin-bottom:3px;">${awayTeam.name} ML</div>
-            <input class="ml-input" type="number" placeholder="-110" id="ml-away-${g.gameId}"
-              style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;font-size:13px;">
-          </div>
-          <div>
-            <div style="font-size:10px;color:var(--text3);margin-bottom:3px;">${homeTeam.name} ML</div>
-            <input class="ml-input" type="number" placeholder="+100" id="ml-home-${g.gameId}"
-              style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;font-size:13px;">
-          </div>
-        </div>
-        <button class="btn btn-sm" style="margin-top:8px;width:100%;" onclick="applyManualML('${g.gameId}','${g.awayAbbr}','${g.homeAbbr}')">Apply Lines</button>
-      </div>`;
-  } else {
-    mlSection = `
+  // ML section: auto-filled from Odds API only
+  let mlSection = `
       <div class="detail-item">
         <div class="detail-label">${awayTeam.name} ML ${sourceBadge}</div>
         <div class="detail-val">${formatML(g.awayML)}</div>
@@ -954,18 +974,9 @@ function renderGameCard(g, rosters, container) {
         <div class="detail-label">${homeTeam.name} ML</div>
         <div class="detail-val">${formatML(g.homeML)}</div>
       </div>`;
-  }
 
   // Edge rows (shown after ML is known)
-  const edgeSection = (g.awayML !== null || needsManualML) ? '' : `
-      <div class="detail-item">
-        <div class="detail-label">${awayTeam.name} Edge</div>
-        <div class="detail-val">${fmtEdge(g._awayEdge)}</div>
-      </div>
-      <div class="detail-item">
-        <div class="detail-label">${homeTeam.name} Edge</div>
-        <div class="detail-val">${fmtEdge(g._homeEdge)}</div>
-      </div>`;
+  const edgeSection = '';
 
   // If ML is known show edges inline
   const edgeSectionFull = g.awayML !== null ? `
@@ -1012,73 +1023,7 @@ function renderGameCard(g, rosters, container) {
   container.appendChild(card);
 }
 
-function applyManualML(gameId, awayAbbr, homeAbbr) {
-  const awayInput = document.getElementById(`ml-away-${gameId}`);
-  const homeInput = document.getElementById(`ml-home-${gameId}`);
-  const awayML = parseFloat(awayInput.value);
-  const homeML = parseFloat(homeInput.value);
-  if (isNaN(awayML) || isNaN(homeML)) {
-    alert('Please enter valid ML lines for both teams (e.g. -130 or +110)');
-    return;
-  }
-
-  // Update the game object in dailyGames
-  const g = dailyGames.find(x => x.gameId === gameId);
-  if (!g) return;
-  g.awayML = awayML;
-  g.homeML = homeML;
-  g.mlSource = 'manual';
-
-  // Re-run model with ML lines now populated
-  const rosters = window._lastRosters || {};
-  // Reset computed fields so computeAndLogGame reruns
-  g._awayEdge = null; g._homeEdge = null; g._betFlag = false; g._betAbbr = null; g._edge = null;
-  computeAndLogGame(g, rosters);
-
-  // Re-render just this card
-  const awayTeam = TEAMS.find(t => t.abbr === awayAbbr);
-  const homeTeam = TEAMS.find(t => t.abbr === homeAbbr);
-  const card = document.getElementById(`card-${gameId}`);
-  if (!card) return;
-
-  const fmtEdge = (val) => val !== null
-    ? `<span class="${val>0?'edge-pos':'edge-neg'}">${val>0?'+':''}${(val*100).toFixed(1)}%</span>`
-    : '<span style="color:var(--text3)">—</span>';
-
-  // Update card class for bet flag
-  card.className = 'game-card' + (g._betFlag ? ' bet-flag' : '');
-
-  // Update header flag
-  const header = card.querySelector('.game-card-header');
-  const existingFlag = header.querySelector('.game-flag');
-  if (existingFlag) existingFlag.remove();
-  if (g._betFlag) {
-    const flag = document.createElement('span');
-    flag.className = 'game-flag';
-    flag.textContent = '⚡ BET';
-    header.appendChild(flag);
-  }
-
-  // Replace details section
-  document.getElementById(`details-${gameId}`).innerHTML = `
-    <div class="detail-item">
-      <div class="detail-label">${awayTeam.name} ML <span style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-left:4px;">MANUAL</span></div>
-      <div class="detail-val">${formatML(awayML)}</div>
-    </div>
-    <div class="detail-item">
-      <div class="detail-label">${homeTeam.name} ML</div>
-      <div class="detail-val">${formatML(homeML)}</div>
-    </div>
-    <div class="detail-item">
-      <div class="detail-label">${awayTeam.name} Edge</div>
-      <div class="detail-val">${fmtEdge(g._awayEdge)}</div>
-    </div>
-    <div class="detail-item">
-      <div class="detail-label">${homeTeam.name} Edge</div>
-      <div class="detail-val">${fmtEdge(g._homeEdge)}</div>
-    </div>
-  `;
-}
+// applyManualML removed — manual odds entry disabled
 
 // ============================================================ P&L HELPERS
 
@@ -1535,20 +1480,6 @@ function buildTeamAuditHTML(team, g, side) {
     </div>`;
   }).join('');
 
-  // Bullpen rows
-  const bullpenRows = audit.bullpen.map((rp, i) => {
-    const w25 = rp.war25 !== null ? rp.war25.toFixed(1) : '—';
-    const w26 = rp.war26 !== null ? rp.war26.toFixed(1) : '—';
-    return `<div class="audit-batter-row" style="font-size:10px;">
-      <span class="audit-batter-slot"></span>
-      <span class="audit-batter-name${!rp.found26 ? ' not-found' : ''}" title="${rp.name}">${rp.name}</span>
-      <span class="audit-num">${w25}</span>
-      <span class="audit-num">${w26}</span>
-    </div>`;
-  }).join('');
-
-  const bullpenId = `bullpen-${side}-${g.gameId}`;
-
   const spFound26 = audit.starter.found26 ? '' : ' <span style="color:#facc15;font-size:9px;">NOT FOUND</span>';
 
   return `
@@ -1556,18 +1487,20 @@ function buildTeamAuditHTML(team, g, side) {
 
     <div class="audit-section">
       <div class="audit-section-title">Baseline (2025 Regression)</div>
-      <div class="audit-row"><span class="audit-row-label">Proj Runs Scored</span><span class="audit-row-val">${fmt1(audit.baseRS)}</span></div>
-      <div class="audit-row"><span class="audit-row-label">Proj Runs Allowed</span><span class="audit-row-val">${fmt1(audit.baseRA)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Proj Runs Scored (incl. HFA/park)</span><span class="audit-row-val">${fmt1(audit.baseRS)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Proj Runs Allowed (incl. HFA/park)</span><span class="audit-row-val">${fmt1(audit.baseRA)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Park Factor</span><span class="audit-row-val">${audit.parkFactor ? audit.parkFactor.toFixed(2) : '1.00'}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Home Field Advantage RS</span><span class="audit-row-val ${valClass(audit.hfaRS || 0)}">${audit.hfaRS ? '+' + fmt1(audit.hfaRS) : '0'}</span></div>
     </div>
 
     <div class="audit-section">
       <div class="audit-section-title">Lineup WAR Adjustments</div>
       <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;">
-        <span></span><span>Player</span><span style="text-align:right">Wt</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Wtd</span>
+        <span></span><span>Player</span><span style="text-align:right">—</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Sum</span>
       </div>
       ${batterRows}
-      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Team top-9 WAR'25 baseline (×1.031)</span><span class="audit-row-val">${fmt1(audit.teamOffBaseline)}</span></div>
-      <div class="audit-row"><span class="audit-row-label">Lineup wtd WAR'26 vs baseline</span><span class="audit-row-val ${valClass(audit.offDelta)}">${fmtSign(audit.offDelta)}</span></div>
+      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Team top-9 Steamer WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamOffBaseline)}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Lineup WAR'26 sum vs baseline</span><span class="audit-row-val ${valClass(audit.offDelta)}">${fmtSign(audit.offDelta)}</span></div>
       <div class="audit-row"><span class="audit-row-label">Run adjustment (Δ × 10)</span><span class="audit-row-val ${valClass(audit.offRunAdj)}">${fmtSign(audit.offRunAdj)}</span></div>
       <div class="audit-row"><span class="audit-row-label"><strong>Adjusted Runs Scored</strong></span><span class="audit-row-val"><strong>${fmt1(audit.newRS)}</strong></span></div>
     </div>
@@ -1579,29 +1512,10 @@ function buildTeamAuditHTML(team, g, side) {
       </div>
       <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26</span><span class="audit-row-val">${audit.starter.war26 !== null ? audit.starter.war26.toFixed(1) : '—'}</span></div>
       <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 ×5</span><span class="audit-row-val">${fmt1(audit.starter.war26Norm)}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">Team SP WAR'25 total</span><span class="audit-row-val">${fmt1(audit.teamSpWar25Total)}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">SP Δ (WAR'26×5 − team'25)</span><span class="audit-row-val ${valClass(audit.spDelta)}">${fmtSign(audit.spDelta)}</span></div>
-      ${audit.bullpen.length > 0 ? `
-      <div class="audit-row" style="margin-top:6px;">
-        <span class="audit-row-label">Bullpen WAR'26 total</span>
-        <span class="audit-row-val">${fmt1(audit.teamBullWar26Total)}</span>
-      </div>
-      <div class="audit-row">
-        <span class="audit-row-label">Bullpen WAR'25 total</span>
-        <span class="audit-row-val">${fmt1(audit.teamBullWar25Total)}</span>
-      </div>
-      <div class="audit-row">
-        <span class="audit-row-label">Bullpen Δ WAR</span>
-        <span class="audit-row-val ${valClass(audit.bullpenDelta)}">${fmtSign(audit.bullpenDelta)}</span>
-      </div>
-      <div class="audit-bullpen-toggle" onclick="toggleBullpen('${bullpenId}')">▶ Show bullpen detail</div>
-      <div class="audit-bullpen-list" id="${bullpenId}">
-        <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;margin-top:4px;">
-          <span></span><span>Pitcher</span><span style="text-align:right">WAR'25</span><span style="text-align:right">WAR'26</span>
-        </div>
-        ${bullpenRows}
-      </div>` : '<div class="audit-row"><span class="audit-row-label" style="color:var(--text3);font-style:italic;">No bullpen data available</span></div>'}
-      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Total pit. run adj. ((SP Δ + BP Δ) × 10)</span><span class="audit-row-val ${valClass(-audit.pitRunAdj)}">${fmtSign(-audit.pitRunAdj)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">Team top-5 SP Steamer WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamSpWar25Total)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">SP Δ (today × 5 − top-5 baseline)</span><span class="audit-row-val ${valClass(audit.spDelta)}">${fmtSign(audit.spDelta)}</span></div>
+      <div class="audit-row" style="margin-top:4px;"><span class="audit-row-label" style="color:var(--text3);font-style:italic;">Bullpen adjustments removed (baked into season projection)</span></div>
+      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Pitching run adj. (SP Δ × 10)</span><span class="audit-row-val ${valClass(-audit.pitRunAdj)}">${fmtSign(-audit.pitRunAdj)}</span></div>
       <div class="audit-row"><span class="audit-row-label"><strong>Adjusted Runs Allowed</strong></span><span class="audit-row-val"><strong>${fmt1(audit.newRA)}</strong></span></div>
     </div>
 
@@ -1623,7 +1537,7 @@ function buildTeamAuditHTML(team, g, side) {
         <span class="lbl" style="font-weight:600;">Edge</span>
         <span class="val" style="font-size:15px;color:${edge > 0.02 ? '#4ade80' : edge < -0.02 ? '#f87171' : 'var(--text)'}">${edge > 0 ? '+' : ''}${(edge * 100).toFixed(2)}%</span>
       </div>
-    </div>` : `<div style="margin-top:10px;font-size:12px;color:var(--text3);font-style:italic;">Enter Vegas ML lines to see edge calculation.</div>`}
+    </div>` : `<div style="margin-top:10px;font-size:12px;color:var(--text3);font-style:italic;">Waiting for Odds API ML lines to calculate edge.</div>`}
   `;
 }
 
