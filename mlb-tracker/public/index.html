@@ -834,6 +834,7 @@ function computeAndLogGame(g, rosters) {
 
   const awayResult = calcTeamDay(awayTeam, g.awayLineup, g.awaySP, awayRoster, false, g.homeAbbr);
   const homeResult = calcTeamDay(homeTeam, g.homeLineup, g.homeSP, homeRoster, true, g.homeAbbr);
+  g._debugInfo = `away: rs=${awayResult.newRS?.toFixed(1)} ra=${awayResult.newRA?.toFixed(1)} wp=${awayResult.winPct?.toFixed(4)} | home: rs=${homeResult.newRS?.toFixed(1)} ra=${homeResult.newRA?.toFixed(1)} wp=${homeResult.winPct?.toFixed(4)} | HITTER_26 len=${HITTER_26.length} PITCHER_26 len=${PITCHER_26.length}`;
   g._awayAudit = awayResult.audit;
   g._homeAudit = homeResult.audit;
   const totalPct = awayResult.winPct + homeResult.winPct;
@@ -951,6 +952,12 @@ function renderGameCard(g, rosters, container) {
 
   const card = document.createElement('div');
   card.className = 'game-card' + (g._betFlag ? ' bet-flag' : '');
+  if (g._debugInfo) {
+    const dbg = document.createElement('div');
+    dbg.style.cssText = 'font-size:10px;color:red;padding:4px;word-break:break-all;';
+    dbg.textContent = g._debugInfo;
+    card.appendChild(dbg);
+  }
 
   // Header flag
   let flagHtml = '';
