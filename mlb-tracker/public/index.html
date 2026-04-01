@@ -835,6 +835,8 @@ function computeAndLogGame(g, rosters) {
   const awayResult = calcTeamDay(awayTeam, g.awayLineup, g.awaySP, awayRoster, false, g.homeAbbr);
   const homeResult = calcTeamDay(homeTeam, g.homeLineup, g.homeSP, homeRoster, true, g.homeAbbr);
   g._debugInfo = `away: rs=${awayResult.newRS?.toFixed(1)} ra=${awayResult.newRA?.toFixed(1)} wp=${awayResult.winPct?.toFixed(4)} | home: rs=${homeResult.newRS?.toFixed(1)} ra=${homeResult.newRA?.toFixed(1)} wp=${homeResult.winPct?.toFixed(4)} | HITTER_26 len=${HITTER_26.length} PITCHER_26 len=${PITCHER_26.length}`;
+  console.log(g._debugInfo);
+  console.log('awayWinPct:', awayResult.winPct, 'homeWinPct:', homeResult.winPct);
   g._awayAudit = awayResult.audit;
   g._homeAudit = homeResult.audit;
   const totalPct = awayResult.winPct + homeResult.winPct;
