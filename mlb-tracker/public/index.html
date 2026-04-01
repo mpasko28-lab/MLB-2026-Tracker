@@ -816,7 +816,8 @@ async function loadTodaysGames() {
       return;
     }
     note.style.display = 'none';
-    status.textContent = `${games.length} games found`;
+    const lineupSummary = games.map(g => `${g.awayAbbr}@${g.homeAbbr}:${g.awayLineup.length}/${g.homeLineup.length}`).join(' | ');
+    status.textContent = `${games.length} games | ${lineupSummary}`;
     for (const g of games) {
       renderGameCard(g, rosters, container);
     }
