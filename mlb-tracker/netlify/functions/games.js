@@ -98,7 +98,7 @@ exports.handler = async function(event, context) {
     'Content-Type': 'application/json'
   };
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
 
     // MLB schedule + Odds API in parallel (Odds API may return from cache)
     const [schedRes, oddsLines] = await Promise.all([
