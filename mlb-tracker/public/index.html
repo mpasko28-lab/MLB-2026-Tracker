@@ -835,8 +835,6 @@ function computeAndLogGame(g, rosters) {
   const awayResult = calcTeamDay(awayTeam, g.awayLineup, g.awaySP, awayRoster, false, g.homeAbbr);
   const homeResult = calcTeamDay(homeTeam, g.homeLineup, g.homeSP, homeRoster, true, g.homeAbbr);
   g._debugInfo = `away: rs=${awayResult.newRS?.toFixed(1)} ra=${awayResult.newRA?.toFixed(1)} wp=${awayResult.winPct?.toFixed(4)} | home: rs=${homeResult.newRS?.toFixed(1)} ra=${homeResult.newRA?.toFixed(1)} wp=${homeResult.winPct?.toFixed(4)} | HITTER_26 len=${HITTER_26.length} PITCHER_26 len=${PITCHER_26.length}`;
-  console.log(g._debugInfo);
-  console.log('awayWinPct:', awayResult.winPct, 'homeWinPct:', homeResult.winPct);
   g._awayAudit = awayResult.audit;
   g._homeAudit = homeResult.audit;
   const totalPct = awayResult.winPct + homeResult.winPct;
@@ -903,48 +901,9 @@ function renderGameCard(g, rosters, container) {
 
   const isLive = g.status === 'Live';
   const isFinal = g.status === 'Final';
-  const isInProgress = isLive || isFinal;
 
-  // Run model only if lineup not yet computed (freeze after first computation)
-  // Also freeze Live/Final games
-  if (!isInProgress && g._awayWin === null) {
-    computeAndLogGame(g, rosters);
-  } else if (!isInProgress && g._awayWin !== null) {
-    // Win% already frozen — if ML just became available, compute edges and log if warranted
-    // Only log if lineup is confirmed (win% was set from a real lineup)
-    const _hasLineupFrozen = g.awayLineup && g.homeLineup && g.awayLineup.length > 0 && g.homeLineup.length > 0;
-    const awayTeam2 = TEAMS.find(t => t.abbr === g.awayAbbr);
-    const homeTeam2 = TEAMS.find(t => t.abbr === g.homeAbbr);
-    if (_hasLineupFrozen && g.awayML !== null && g.homeML !== null && g._awayEdge === null) {
-      const awayVegas = mlToImplied(g.awayML);
-      const homeVegas = mlToImplied(g.homeML);
-      g._awayEdge = g._awayWin - awayVegas;
-      g._homeEdge = g._homeWin - homeVegas;
-      if (!seenGameIds.has(g.gameId)) {
-        let edge = null, betAbbr = null, betTeam = null;
-        if (g._awayEdge > g._homeEdge && g._awayEdge > 0) {
-          edge = g._awayEdge; betAbbr = g.awayAbbr; betTeam = awayTeam2 ? awayTeam2.name : g.awayAbbr;
-        } else if (g._homeEdge > 0) {
-          edge = g._homeEdge; betAbbr = g.homeAbbr; betTeam = homeTeam2 ? homeTeam2.name : g.homeAbbr;
-        }
-        if (edge !== null) {
-          g._betFlag = true; g._betAbbr = betAbbr; g._edge = edge;
-          const betML = betAbbr === g.awayAbbr ? g.awayML : g.homeML;
-          const betWinPct = betAbbr === g.awayAbbr ? g._awayWin : g._homeWin;
-          seenGameIds.add(g.gameId);
-          betLog.push({
-            type: 'daily', date: g.date, gameId: g.gameId,
-            matchup: `${awayTeam2 ? awayTeam2.name : g.awayAbbr} @ ${homeTeam2 ? homeTeam2.name : g.homeAbbr}`,
-            betOn: betTeam, betAbbr, awayAbbr: g.awayAbbr, homeAbbr: g.homeAbbr,
-            modelPct: (betWinPct * 100).toFixed(1),
-            vegasPct: (mlToImplied(betML) * 100).toFixed(1),
-            edge: (edge * 100).toFixed(1), vegasML: betML, result: 'P', score: '—'
-          });
-          saveState(); buildBetLog();
-        }
-      }
-    }
-  }
+  // Always run model fresh every render
+  computeAndLogGame(g, rosters);
 
   const hasLineup = g.awayLineup && g.homeLineup && g.awayLineup.length > 0 && g.homeLineup.length > 0;
   const needsManualML = false; // Manual ML entry removed
