@@ -93,9 +93,10 @@ async function fetchOddsApiLines() {
 }
 
 exports.handler = async function(event, context) {
-  const headers = {
+    const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store, no-cache, must-revalidate'
   };
   try {
     const today = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
