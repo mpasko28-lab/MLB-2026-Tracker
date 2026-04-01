@@ -668,7 +668,8 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
 
 async function callFn(fn, params) {
   const qs = new URLSearchParams(params).toString();
-  const r = await fetch(`/.netlify/functions/${fn}?${qs}`);
+  const bust = `_t=${Date.now()}`;
+  const r = await fetch(`/.netlify/functions/${fn}?${qs ? qs + '&' : ''}${bust}`);
   if (!r.ok) throw new Error(`${fn} failed: ${r.status}`);
   return r.json();
 }
