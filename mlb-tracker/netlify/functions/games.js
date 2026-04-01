@@ -103,7 +103,7 @@ exports.handler = async function(event, context) {
 
     // MLB schedule + Odds API in parallel (Odds API may return from cache)
     const [schedRes, oddsLines] = await Promise.all([
-      fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=lineups,probablePitcher,linescore,odds`),
+      fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=lineups,probablePitcher,linescore,odds&_t=${Date.now()}`)
       fetchOddsApiLines()
     ]);
 
