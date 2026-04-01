@@ -261,6 +261,7 @@
 <div class="tab-content" id="tab-daily">
   <div class="controls">
     <button class="btn" onclick="loadTodaysGames()"><span id="daily-spinner" style="display:none" class="loading"></span>Load Today's Games</button>
+    <button class="btn" onclick="refreshLineups()" id="refreshLineupsBtn"><span id="lineup-spinner" style="display:none" class="loading"></span>↻ Refresh Lineups</button>
     <span class="status-msg" id="daily-status"></span>
   </div>
   <div class="note" id="daily-note">
@@ -781,6 +782,15 @@ async function refreshStandings() {
 
 // ============================================================ DAILY MATCHUPS
 
+async function refreshLineups() {
+  const btn = document.getElementById('refreshLineupsBtn');
+  const spinner = document.getElementById('lineup-spinner');
+  spinner.style.display = 'inline-block';
+  btn.disabled = true;
+  await loadTodaysGames();
+  spinner.style.display = 'none';
+  btn.disabled = false;
+}  
 async function loadTodaysGames() {
   const spinner = document.getElementById('daily-spinner');
   const status = document.getElementById('daily-status');
