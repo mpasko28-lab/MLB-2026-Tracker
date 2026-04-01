@@ -863,7 +863,9 @@ function computeAndLogGame(g, rosters) {
       edge = homeEdge; betAbbr = g.homeAbbr; betTeam = homeTeam.name;
     }
 
-    if (edge !== null) {
+    const isLiveOrFinal = g.status === 'Live' || g.status === 'Final';
+
+    if (edge !== null && !isLiveOrFinal) {
       g._betFlag = true; g._betAbbr = betAbbr; g._edge = edge;
 
       if (!seenGameIds.has(g.gameId)) {
@@ -1469,13 +1471,10 @@ function buildTeamAuditHTML(team, g, side) {
   const batterRows = audit.batters.map(b => {
     const nameClass = !b.found26 ? 'not-found' : '';
     const w26 = b.war26 !== null ? b.war26.toFixed(1) : '—';
-    const wtd = b.war26 !== null ? (b.war26 * b.weight).toFixed(2) : '—';
     return `<div class="audit-batter-row">
       <span class="audit-batter-slot">${b.slot}</span>
       <span class="audit-batter-name ${nameClass}" title="${b.name}">${b.name}</span>
-      <span class="audit-num">${b.weight.toFixed(2)}</span>
       <span class="audit-num">${w26}</span>
-      <span class="audit-num">${wtd}</span>
     </div>`;
   }).join('');
 
@@ -1495,7 +1494,7 @@ function buildTeamAuditHTML(team, g, side) {
     <div class="audit-section">
       <div class="audit-section-title">Lineup WAR Adjustments</div>
       <div class="audit-batter-row" style="font-size:10px;color:var(--text3);font-weight:600;">
-        <span></span><span>Player</span><span style="text-align:right">—</span><span style="text-align:right">WAR'26</span><span style="text-align:right">Sum</span>
+        <span></span><span>Player</span><span style="text-align:right">WAR'26</span>
       </div>
       ${batterRows}
       <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Team top-9 Steamer WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamOffBaseline)}</span></div>
