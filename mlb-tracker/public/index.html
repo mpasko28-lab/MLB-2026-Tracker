@@ -1490,6 +1490,7 @@ function buildTeamAuditHTML(team, g, side) {
       <div class="audit-row"><span class="audit-row-label">Proj Runs Allowed (incl. HFA/park)</span><span class="audit-row-val">${fmt1(audit.baseRA)}</span></div>
       <div class="audit-row"><span class="audit-row-label">Park Factor</span><span class="audit-row-val">${audit.parkFactor ? audit.parkFactor.toFixed(2) : '1.00'}</span></div>
       <div class="audit-row"><span class="audit-row-label">Home Field Advantage RS</span><span class="audit-row-val ${valClass(audit.hfaRS || 0)}">${audit.hfaRS ? '+' + fmt1(audit.hfaRS) : '0'}</span></div>
+      <div class="audit-row"><span class="audit-row-label">Home Field Advantage RA</span><span class="audit-row-val ${valClass(-(audit.hfaRA || 0))}">${audit.hfaRA ? fmt1(audit.hfaRA) : '0'}</span></div>
     </div>
 
     <div class="audit-section">
