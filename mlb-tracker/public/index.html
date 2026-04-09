@@ -840,9 +840,12 @@ function computeAndLogGame(g, rosters) {
   g._homeAudit = homeResult.audit;
   const pA = awayResult.winPct;
   const pB = homeResult.winPct;
-  const awayWinPct = (pA - pA * pB) / (pA + pB - 2 * pA * pB);
+  if (!Number.isFinite(pA) || !Number.isFinite(pB)) return g;
+  const denom = (pA + pB - 2 * pA * pB);
+  if (!Number.isFinite(denom) || denom === 0) return g;
+  const awayWinPct = (pA - pA * pB) / denom;
   const homeWinPct = 1 - awayWinPct;
-  if (isNaN(awayWinPct)) return g;
+
 
   g._awayWin = awayWinPct;
   g._homeWin = homeWinPct;
