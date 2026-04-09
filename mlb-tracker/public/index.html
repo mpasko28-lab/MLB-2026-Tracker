@@ -840,9 +840,9 @@ function computeAndLogGame(g, rosters) {
   g._homeAudit = homeResult.audit;
   const pA = awayResult.winPct;
   const pB = homeResult.winPct;
-  if (isNaN(awayWinPct)) return g;
   const awayWinPct = (pA - pA * pB) / (pA + pB - 2 * pA * pB);
   const homeWinPct = 1 - awayWinPct;
+  if (isNaN(awayWinPct)) return g;
 
   g._awayWin = awayWinPct;
   g._homeWin = homeWinPct;
