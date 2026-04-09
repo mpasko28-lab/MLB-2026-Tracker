@@ -1463,8 +1463,12 @@ function buildTeamAuditHTML(team, g, side) {
   const sp = side === 'away' ? g.awaySP : g.homeSP;
   const oppAudit = side === 'away' ? g._homeAudit : g._awayAudit;
 
-  const totalWinPct = g._awayAudit.winPct + g._homeAudit.winPct;
-  const normWinPct = audit.winPct / totalWinPct;
+  const pA = g._awayAudit.winPct;
+  const pB = g._homeAudit.winPct;
+  const totalWinPct = pA + pB; // kept for any other references
+  const normWinPct = side === 'away'
+   ? (pA - pA * pB) / (pA + pB - 2 * pA * pB)
+   : 1 - (pA - pA * pB) / (pA + pB - 2 * pA * pB);
   const vegasML = side === 'away' ? g.awayML : g.homeML;
   const vegasImplied = mlToImplied(vegasML);
   const edge = vegasImplied !== null ? normWinPct - vegasImplied : null;
