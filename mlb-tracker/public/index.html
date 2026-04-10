@@ -323,9 +323,9 @@
 
   <!-- P&L CHART -->
   <div class="pnl-container" id="pnl-container" style="display:none">
-    <div class="pnl-header">
+  <div class="pnl-header">
       <div>
-        <div class="pnl-title">Hypothetical Fund — Starting $100</div>
+        <div class="pnl-title">Hypothetical Fund — Starting <input id="pnl-starting" type="number" value="100" step="0.01" style="width:80px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:13px;font-weight:900;padding:2px 6px;border-radius:4px;" onchange="savePnlStarting();"></div>
         <div class="pnl-note">Wager sizing by edge bucket. Each game counted once. Pending bets excluded.</div>
       </div>
       <div class="pnl-stats">
@@ -450,6 +450,12 @@ let uploadedPit26 = null;
 let seenGameIds = new Set(); // prevent duplicate bet log entries
 let dailyGames = []; // current day's game results
 
+function savePnlStarting() {
+  const val = document.getElementById('pnl-starting').value;
+  localStorage.setItem('mlb2026_pnl_start', val);
+  buildBetLog();
+}
+  
 function loadState() {
   try {
     const saved = localStorage.getItem('mlb2026_state');
@@ -469,6 +475,8 @@ function loadState() {
       uploadedPit26 = JSON.parse(savedPit);
       document.getElementById('zone-pit26').classList.add('loaded');
     }
+    const savedStart = localStorage.getItem('mlb2026_pnl_start');
+    if (savedStart) { const el = document.getElementById('pnl-starting'); if (el) el.value = savedStart; }
   } catch(e) {}
 }
 
@@ -1042,7 +1050,7 @@ function mlToReturn(ml) {
 function calcPnlSeries(resolvedBets) {
   // resolvedBets: sorted chronologically, only W or L, each counted once
   // Wager sizing compounds — each wager is % of current fund balance
-  const STARTING = 100;
+  const STARTING = parseFloat(document.getElementById('pnl-starting')?.value || localStorage.getItem('mlb2026_pnl_start') || '100');
   let fund = STARTING;
   const points = [{ label: 'Start', fund: STARTING }];
 
