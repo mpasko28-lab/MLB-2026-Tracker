@@ -509,9 +509,16 @@ function findWar25(name, data) {
   return null; // null = rookie (delta=0)
 }
 
-function findWar26(name, data, overrideData) {
+function findWar26(name, data, overrideData, teamAbbr) {
   const src = overrideData || data;
   const n = normName(name);
+  // Try team-specific match first
+  if (teamAbbr) {
+    for (const p of src) {
+      if (normName(p.name) === n && p.team === teamAbbr) return p.war;
+    }
+  }
+  // Fall back to name-only match
   for (const p of src) {
     if (normName(p.name) === n) return p.war;
   }
@@ -600,7 +607,7 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
   let lineupWar26Sum = 0;
   const auditBatters = [];
   lineup.forEach((playerName, idx) => {
-    const war26 = findWar26(playerName, HITTER_26, uploadedHit26);
+    const war26 = findWar26(playerName, HITTER_26, uploadedHit26, teamAbbr);
     const war25 = findWar25(playerName, HITTER_25);
     const effectiveWar26 = war26 !== null ? war26 : 0;
     lineupWar26Sum += effectiveWar26;
@@ -629,7 +636,7 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
     .slice(0, 5)
     .reduce((s, p) => s + (parseFloat(p.war) || 0), 0);
 
-  const spWar26Raw = findWar26(spName, PITCHER_26, uploadedPit26);
+  const spWar26Raw = findWar26(spName, PITCHER_26, uploadedPit26, teamAbbr);
   const spWar26 = spWar26Raw || 0;
   const spWar25 = findWar25(spName, PITCHER_25);
   const spWar26Norm = spWar26 * 5;
