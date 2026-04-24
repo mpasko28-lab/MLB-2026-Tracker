@@ -363,6 +363,7 @@
         <div class="upload-sub">Name, Team, WAR (CSV)</div>
         <input type="file" class="upload-input" id="input-hit26" accept=".csv" onchange="handleUpload('hit26', this)">
       </div>
+      <button id="reset-hit26" class="btn btn-sm btn-outline" style="display:none;margin-top:8px" onclick="resetUpload('hit26')">↩ Reset to Preseason</button>
     </div>
     <div>
       <div class="section-title">2026 Pitcher Projections (RoS)</div>
@@ -372,6 +373,7 @@
         <div class="upload-sub">Name, Team, WAR (CSV)</div>
         <input type="file" class="upload-input" id="input-pit26" accept=".csv" onchange="handleUpload('pit26', this)">
       </div>
+      <button id="reset-pit26" class="btn btn-sm btn-outline" style="display:none;margin-top:8px" onclick="resetUpload('pit26')">↩ Reset to Preseason</button>
     </div>
   </div>
   
@@ -470,11 +472,13 @@ function loadState() {
     if (savedHit) {
       uploadedHit26 = JSON.parse(savedHit);
       document.getElementById('zone-hit26').classList.add('loaded');
+      document.getElementById('reset-hit26').style.display = '';
     }
     const savedPit = localStorage.getItem('mlb2026_pit26');
     if (savedPit) {
       uploadedPit26 = JSON.parse(savedPit);
       document.getElementById('zone-pit26').classList.add('loaded');
+      document.getElementById('reset-pit26').style.display = '';
     }
     const savedStart = localStorage.getItem('mlb2026_pnl_start');
     if (savedStart) { const el = document.getElementById('pnl-starting'); if (el) el.value = savedStart; }
@@ -1334,7 +1338,23 @@ function clearBetLog() {
   saveState();
   buildBetLog();
 }
-
+  
+function resetUpload(type) {
+  if (!confirm(`Reset to preseason ${type === 'hit26' ? 'hitter' : 'pitcher'} projections?`)) return;
+  if (type === 'hit26') {
+    uploadedHit26 = null;
+    localStorage.removeItem('mlb2026_hit26');
+    document.getElementById('zone-hit26').classList.remove('loaded');
+    document.getElementById('reset-hit26').style.display = 'none';
+  } else {
+    uploadedPit26 = null;
+    localStorage.removeItem('mlb2026_pit26');
+    document.getElementById('zone-pit26').classList.remove('loaded');
+    document.getElementById('reset-pit26').style.display = 'none';
+  }
+  document.getElementById('upload-summary-container').innerHTML = '';
+}
+  
 function exportBetLog() {
   const daily = betLog.filter(b => b.type === 'daily');
   if (daily.length === 0) { alert('No bets to export.'); return; }
@@ -1395,6 +1415,7 @@ function handleUpload(type, input) {
     if (type === 'hit26') {
       uploadedHit26 = parsed;
       document.getElementById('zone-hit26').classList.add('loaded');
+      document.getElementById('reset-hit26').style.display = '';
       try { localStorage.setItem('mlb2026_hit26', JSON.stringify(parsed)); } catch(e) {}
     }
     if (type === 'pit26') {
