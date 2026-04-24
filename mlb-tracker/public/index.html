@@ -1437,9 +1437,9 @@ function renderUploadSummary(type, data) {
       <div class="section-title">${label} Upload Summary</div>
       <div class="summary-row"><span>Total players</span><span>${data.length}</span></div>
       <div class="summary-row"><span>Matched</span><span style="color:var(--over)">${matched} (${pct}%)</span></div>
-      <div class="summary-row"><span>Unmatched</span><span style="color:${unmatched.length>0?'var(--under)':'var(--text2)'}">${unmatched.length}</span></div>
+      <div class="summary-row"><span>No prior projection</span><span style="color:${unmatched.length>0?'var(--under)':'var(--text2)'}">${unmatched.length}</span></div>
       <div class="summary-row"><span>Notable WAR movers (±1.0+)</span><span>${movers.length}</span></div>
-      ${unmatched.length > 0 ? `<div class="section-title" style="margin-top:12px">Unmatched Players</div><div class="unmatched-list">${unmatched.join(', ')}</div>` : ''}
+      ${unmatched.length > 0 ? `<div class="section-title" style="margin-top:12px">Players With No Prior Projection</div><div class="unmatched-list">${unmatched.join(', ')}</div>` : ''}
       ${movers.length > 0 ? `<div class="section-title" style="margin-top:12px">Notable WAR Movers</div>${moversHtml}` : ''}
     </div>
   `;
