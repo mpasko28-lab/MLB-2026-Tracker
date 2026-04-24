@@ -296,6 +296,7 @@
 
   <div class="controls">
     <button class="btn btn-sm" onclick="checkOutcomes()"><span id="outcomes-spinner" style="display:none" class="loading"></span>Check Outcomes</button>
+    <button class="btn btn-sm btn-outline" onclick="exportBetLog()">Export CSV</button>
     <button class="btn btn-sm btn-outline" onclick="clearBetLog()">Clear Log</button>
   </div>
 
@@ -1332,6 +1333,44 @@ function clearBetLog() {
   seenGameIds.clear();
   saveState();
   buildBetLog();
+}
+
+function exportBetLog() {
+  const daily = betLog.filter(b => b.type === 'daily');
+  if (daily.length === 0) { alert('No bets to export.'); return; }
+
+  // Recompute wagers/pnl in chronological order (same logic as buildBetLog)
+  const STARTING = parseFloat(document.getElementById('pnl-starting')?.value || localStorage.getItem('mlb2026_pnl_start') || '100');
+  const chronological = daily.slice().sort((a, b) => a.date.localeCompare(b.date));
+  let fund = STARTING;
+  const betPnl = {};
+  for (const b of chronological) {
+    const bk = edgeBucket(parseFloat(b.edge) / 100);
+    const wagerPct = WAGER_PCT[bk] || 0.001;
+    const wager = fund * wagerPct;
+    const ret = mlToReturn(b.vegasML);
+    let pnl = null;
+    if (b.result === 'W') { pnl = wager * ret; fund += pnl; }
+    else if (b.result === 'L') { pnl = -wager; fund += pnl; }
+    betPnl[b.gameId] = { wager, pnl };
+  }
+
+  const headers = ['Date','Matchup','Bet On','Model%','Vegas%','Edge%','Vegas ML','Wager','Score','Result','P&L'];
+  const rows = chronological.map(b => {
+    const wd = betPnl[b.gameId] || {};
+    const wagerStr = wd.wager ? wd.wager.toFixed(2) : '';
+    const pnlStr = (b.result !== 'P' && wd.pnl !== null) ? wd.pnl.toFixed(2) : '';
+    return [b.date, b.matchup, b.betOn, b.modelPct, b.vegasPct, b.edge, b.vegasML, wagerStr, b.score, b.result, pnlStr];
+  });
+
+  const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mlb-bet-log-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ============================================================ UPLOAD
