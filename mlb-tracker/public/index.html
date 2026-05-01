@@ -172,6 +172,22 @@
   /* ---- Audit Drawer ---- */
   .audit-overlay { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;opacity:0;pointer-events:none;transition:opacity .2s; }
   .audit-overlay.open { opacity:1;pointer-events:all; }
+  .dash-overlay { position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:900;opacity:0;pointer-events:none;transition:opacity .25s; }
+  .dash-overlay.open { opacity:1;pointer-events:all; }
+  .dash-tab-bar { display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto; }
+  .dash-tab { padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;color:var(--text2);white-space:nowrap; }
+  .dash-tab.active { border-bottom-color:var(--accent);color:var(--text); }
+  .dash-metric-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px; }
+  .dash-metric { background:var(--surface2);border-radius:8px;padding:12px 14px; }
+  .dash-metric .dm-label { font-size:11px;color:var(--text2);margin:0 0 3px; }
+  .dash-metric .dm-val { font-size:20px;font-weight:600;margin:0; }
+  .dash-metric .dm-sub { font-size:11px;color:var(--text2);margin:2px 0 0; }
+  .dash-chart-grid { display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px; }
+  .dash-card { background:var(--surface2);border-radius:8px;padding:14px 16px; }
+  .dash-card h4 { font-size:12px;font-weight:500;color:var(--text2);margin:0 0 10px; }
+  .dash-team-tbl { width:100%;font-size:11px;border-collapse:collapse; }
+  .dash-team-tbl td { padding:3px 6px; }
+  .dash-team-tbl tr:nth-child(even) { background:var(--surface); }
   .audit-drawer { position:fixed;top:0;right:0;height:100%;width:min(680px,100vw);background:var(--bg);border-left:1px solid var(--border);z-index:901;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column; }
   .audit-drawer.open { transform:translateX(0); }
   .audit-drawer-header { padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:1; }
@@ -297,6 +313,7 @@
   <div class="controls">
     <button class="btn btn-sm" onclick="checkOutcomes()"><span id="outcomes-spinner" style="display:none" class="loading"></span>Check Outcomes</button>
     <button class="btn btn-sm btn-outline" onclick="exportBetLog()">Export CSV</button>
+    <button class="btn btn-sm btn-outline" onclick="openDashboard()">📊 Dashboard</button>
     <button class="btn btn-sm btn-outline" onclick="clearBetLog()">Clear Log</button>
   </div>
 
@@ -1485,6 +1502,14 @@ buildBetLog();
 </script>
 
 <!-- ============================================================ AUDIT DRAWER -->
+<div class="dash-overlay" id="dash-overlay" onclick="closeDashboard()"></div>
+<div class="audit-drawer" id="dash-drawer" style="width:min(820px,100vw)">
+  <div class="audit-drawer-header">
+    <span class="audit-drawer-title">📊 Results Dashboard</span>
+    <button class="audit-close" onclick="closeDashboard()">✕ Close</button>
+  </div>
+  <div class="audit-body" id="dash-body"></div>
+</div>
 <div class="audit-overlay" id="audit-overlay" onclick="closeAuditDrawer()"></div>
 <div class="audit-drawer" id="audit-drawer">
   <div class="audit-drawer-header">
@@ -1515,6 +1540,180 @@ function closeAuditDrawer() {
   document.getElementById('audit-overlay').classList.remove('open');
   document.getElementById('audit-drawer').classList.remove('open');
   document.body.style.overflow = '';
+}
+
+let dashCharts = [];
+
+function openDashboard() {
+  const daily = betLog.filter(b => b.type === 'daily' && b.result !== 'P');
+  if (daily.length === 0) { alert('No resolved bets yet.'); return; }
+
+  // Get unique months
+  const months = [...new Set(daily.map(b => b.date.slice(0,7)))].sort();
+  const MONTH_NAMES = {
+    '01':'January','02':'February','03':'March','04':'April',
+    '05':'May','06':'June','07':'July','08':'August',
+    '09':'September','10':'October','11':'November','12':'December'
+  };
+
+  let activeDashTab = 'overall';
+
+  function computeStats(bets) {
+    const STARTING = parseFloat(document.getElementById('pnl-starting')?.value || localStorage.getItem('mlb2026_pnl_start') || '100');
+    const sorted = bets.slice().sort((a,b) => a.date.localeCompare(b.date));
+    let fund = STARTING, cumPnl = [], weekMap = {}, teamMap = {}, edgeMap = {}, favW=0,favL=0,dogW=0,dogL=0;
+    let totalW=0,totalL=0,totalPnl=0,totalWagered=0,maxDD=0,runningPnl=0;
+    for (const b of sorted) {
+      const bk = edgeBucket(parseFloat(b.edge)/100);
+      const wagerPct = WAGER_PCT[bk] || 0.001;
+      const wager = fund * wagerPct;
+      const ret = mlToReturn(parseFloat(b.vegasML));
+      let pnl = 0;
+      if (b.result==='W') { pnl = wager*ret; fund+=pnl; totalW++; }
+      else { pnl = -wager; fund+=pnl; totalL++; }
+      totalPnl += pnl; totalWagered += wager;
+      runningPnl += pnl;
+      if (runningPnl < maxDD) maxDD = runningPnl;
+      cumPnl.push(parseFloat(runningPnl.toFixed(2)));
+      // weekly
+      const dt = new Date(b.date+'T12:00:00');
+      const wk = `${dt.getFullYear()}-W${String(Math.ceil((dt - new Date(dt.getFullYear(),0,1))/(7*86400000)+1)).padStart(2,'0')}`;
+      if (!weekMap[wk]) weekMap[wk] = {pnl:0,w:0,l:0};
+      weekMap[wk].pnl += pnl; if (b.result==='W') weekMap[wk].w++; else weekMap[wk].l++;
+      // team
+      const t = b.betOn;
+      if (!teamMap[t]) teamMap[t] = {pnl:0,w:0,l:0,wagered:0};
+      teamMap[t].pnl+=pnl; teamMap[t].wagered+=wager;
+      if (b.result==='W') teamMap[t].w++; else teamMap[t].l++;
+      // edge bucket
+      if (!edgeMap[bk]) edgeMap[bk] = {w:0,l:0,pnl:0,wagered:0};
+      edgeMap[bk].pnl+=pnl; edgeMap[bk].wagered+=wager;
+      if (b.result==='W') edgeMap[bk].w++; else edgeMap[bk].l++;
+      // fav/dog
+      const ml = parseFloat(b.vegasML);
+      if (ml<0) { if(b.result==='W') favW++; else favL++; }
+      else { if(b.result==='W') dogW++; else dogL++; }
+    }
+    const weeks = Object.keys(weekMap).sort();
+    return { totalW,totalL,totalPnl,totalWagered,maxDD,cumPnl,weeks,weekMap,teamMap,edgeMap,favW,favL,dogW,dogL };
+  }
+
+  function renderDash(tabKey) {
+    activeDashTab = tabKey;
+    const bets = tabKey==='overall' ? daily : daily.filter(b=>b.date.slice(0,7)===tabKey);
+    const s = computeStats(bets);
+    const winRate = s.totalW+s.totalL>0 ? (s.totalW/(s.totalW+s.totalL)*100).toFixed(1) : '0.0';
+    const roi = s.totalWagered>0 ? (s.totalPnl/s.totalWagered*100).toFixed(1) : '0.0';
+    const pnlColor = s.totalPnl>=0?'#1D9E75':'#D85A30';
+
+    // Edge buckets table
+    const edgeOrder = ['0-1%','1-3%','3-5%','5-8%','8-12%','12%+'];
+    const edgeRows = edgeOrder.map(bk => {
+      const e = s.edgeMap[bk];
+      if (!e) return '';
+      const wr = ((e.w/(e.w+e.l))*100).toFixed(1);
+      const roi2 = (e.pnl/e.wagered*100).toFixed(1);
+      const c = e.pnl>=0?'#1D9E75':'#D85A30';
+      return `<tr><td>${bk}</td><td>${e.w}-${e.l}</td><td>${wr}%</td><td style="color:${c}">${e.pnl>=0?'+':''}$${e.pnl.toFixed(2)}</td><td style="color:${c}">${roi2}%</td></tr>`;
+    }).join('');
+
+    // Team table sorted by P&L
+    const teamRows = Object.entries(s.teamMap).sort((a,b)=>b[1].pnl-a[1].pnl).map(([team,d])=>{
+      const c = d.pnl>=0?'#1D9E75':'#D85A30';
+      const roi2 = (d.pnl/d.wagered*100).toFixed(0);
+      return `<tr><td>${team}</td><td>${d.w}-${d.l}</td><td style="color:${c}">${d.pnl>=0?'+':''}$${d.pnl.toFixed(2)}</td><td style="color:${c}">${roi2}%</td></tr>`;
+    }).join('');
+
+    document.getElementById('dash-body').innerHTML = `
+      <div style="padding:16px 20px">
+        <div class="dash-tab-bar" id="dash-tab-bar"></div>
+        <div class="dash-metric-grid">
+          <div class="dash-metric"><p class="dm-label">Record</p><p class="dm-val">${s.totalW}-${s.totalL}</p><p class="dm-sub">${winRate}% win rate</p></div>
+          <div class="dash-metric"><p class="dm-label">Total P&L</p><p class="dm-val" style="color:${pnlColor}">${s.totalPnl>=0?'+':''}$${s.totalPnl.toFixed(2)}</p><p class="dm-sub">on $${s.totalWagered.toFixed(2)} wagered</p></div>
+          <div class="dash-metric"><p class="dm-label">ROI</p><p class="dm-val" style="color:${pnlColor}">${roi}%</p><p class="dm-sub">${s.totalW+s.totalL} bets</p></div>
+          <div class="dash-metric"><p class="dm-label">Max drawdown</p><p class="dm-val" style="color:#D85A30">$${s.maxDD.toFixed(2)}</p></div>
+        </div>
+        <div class="dash-chart-grid">
+          <div class="dash-card"><h4>Cumulative P&L</h4><div style="position:relative;height:160px"><canvas id="dc-cumul"></canvas></div></div>
+          <div class="dash-card"><h4>P&L by week</h4><div style="position:relative;height:160px"><canvas id="dc-week"></canvas></div></div>
+        </div>
+        <div class="dash-chart-grid">
+          <div class="dash-card">
+            <h4>By edge bucket</h4>
+            <table class="dash-team-tbl"><tr style="color:var(--text2)"><td>Bucket</td><td>W-L</td><td>Win%</td><td>P&L</td><td>ROI</td></tr>${edgeRows}</table>
+          </div>
+          <div class="dash-card">
+            <h4>Favorites vs underdogs</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+              <div class="dash-metric"><p class="dm-label">Underdogs</p><p class="dm-val" style="font-size:15px">${s.dogW}-${s.dogL}</p></div>
+              <div class="dash-metric"><p class="dm-label">Favorites</p><p class="dm-val" style="font-size:15px">${s.favW}-${s.favL}</p></div>
+            </div>
+            <div style="position:relative;height:80px"><canvas id="dc-favdog"></canvas></div>
+          </div>
+        </div>
+        <div class="dash-card" style="margin-bottom:16px">
+          <h4>By team</h4>
+          <table class="dash-team-tbl"><tr style="color:var(--text2)"><td>Team</td><td>W-L</td><td>P&L</td><td>ROI</td></tr>${teamRows}</table>
+        </div>
+      </div>`;
+
+    // Rebuild tab bar
+    const tabBar = document.getElementById('dash-tab-bar');
+    const allTabs = months.map(m => ({key:m, label:MONTH_NAMES[m.slice(5)] || m}));
+    allTabs.push({key:'overall', label:'Overall'});
+    tabBar.innerHTML = allTabs.map(t =>
+      `<div class="dash-tab${t.key===activeDashTab?' active':''}" onclick="dashSwitchTab('${t.key}')">${t.label}</div>`
+    ).join('');
+
+    // Destroy old charts
+    dashCharts.forEach(c=>c.destroy()); dashCharts=[];
+    const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const tc = isDark?'#aaa':'#666'; const gc = isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+    const baseOpts = { responsive:true,maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:tc,font:{size:10}},grid:{color:gc}},y:{ticks:{color:tc,font:{size:10}},grid:{color:gc}}} };
+
+    dashCharts.push(new Chart(document.getElementById('dc-cumul'), {
+      type:'line',
+      data:{ labels:s.cumPnl.map((_,i)=>i+1), datasets:[{data:s.cumPnl,borderColor:'#1D9E75',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:isDark?'rgba(29,158,117,0.1)':'rgba(29,158,117,0.08)',tension:0.3}] },
+      options:{...baseOpts,scales:{x:{display:false},y:{ticks:{color:tc,font:{size:10},callback:v=>'$'+v.toFixed(1)},grid:{color:gc}}}}
+    }));
+
+    const wkLabels = s.weeks.map(w=>w.slice(5));
+    const wkData = s.weeks.map(w=>parseFloat(s.weekMap[w].pnl.toFixed(2)));
+    dashCharts.push(new Chart(document.getElementById('dc-week'), {
+      type:'bar',
+      data:{ labels:wkLabels, datasets:[{data:wkData,backgroundColor:wkData.map(v=>v>=0?'#1D9E75':'#D85A30'),borderRadius:3}] },
+      options:{...baseOpts,scales:{x:{ticks:{color:tc,font:{size:10}},grid:{color:gc}},y:{ticks:{color:tc,font:{size:10},callback:v=>'$'+v.toFixed(1)},grid:{color:gc}}}}
+    }));
+
+    dashCharts.push(new Chart(document.getElementById('dc-favdog'), {
+      type:'bar',
+      data:{ labels:['Underdogs','Favorites'], datasets:[{label:'W',data:[s.dogW,s.favW],backgroundColor:'#1D9E75',borderRadius:3},{label:'L',data:[s.dogL,s.favL],backgroundColor:'#D85A30',borderRadius:3}] },
+      options:{...baseOpts,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{stacked:true,ticks:{color:tc,font:{size:10}},grid:{color:gc}},y:{stacked:true,ticks:{color:tc,font:{size:10}},grid:{color:gc}}}}
+    }));
+  }
+
+  window.dashSwitchTab = function(key) { renderDash(key); };
+
+  document.getElementById('dash-overlay').classList.add('open');
+  document.getElementById('dash-drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  // Load Chart.js if needed then render
+  if (window.Chart) {
+    renderDash('overall');
+  } else {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
+    s.onload = () => renderDash('overall');
+    document.head.appendChild(s);
+  }
+}
+
+function closeDashboard() {
+  document.getElementById('dash-overlay').classList.remove('open');
+  document.getElementById('dash-drawer').classList.remove('open');
+  document.body.style.overflow = '';
+  dashCharts.forEach(c=>c.destroy()); dashCharts=[];
 }
 
 function toggleBullpen(id) {
