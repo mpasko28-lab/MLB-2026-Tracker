@@ -1425,7 +1425,7 @@ function handleUpload(type, input) {
     }
     renderUploadSummary(type, parsed);
   };
-  reader.readAsText(file);
+  reader.readAsText(file, 'UTF-8');
 }
 
 function renderUploadSummary(type, data) {
