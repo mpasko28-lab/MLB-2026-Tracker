@@ -1400,10 +1400,10 @@ function handleUpload(type, input) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    const lines = e.target.result.split('\n').filter(l => l.trim());
+    const lines = e.target.result.split(/\r?\n/).filter(l => l.trim());
     const parsed = [];
     for (const line of lines) {
-      const parts = line.split(',');
+      const parts = line.split(',').map(p => p.trim().replace(/^\uFEFF/, ''));
       if (parts.length < 3) continue;
       const name = parts[0].trim();
       const team = parts[1].trim();
