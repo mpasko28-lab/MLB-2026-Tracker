@@ -1436,7 +1436,7 @@ function renderUploadSummary(type, data) {
   let matched = 0, unmatched = [], movers = [];
   for (const p of data) {
     const n = normName(p.name);
-    const found = baseline.find(x => normName(x.name) === n);
+    const found = baseline.find(x => normName(x.name) === n && x.team === p.team) || baseline.find(x => normName(x.name) === n);
     if (found) {
       matched++;
       const delta = p.war - found.war;
