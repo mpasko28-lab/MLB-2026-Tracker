@@ -603,7 +603,7 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
 
   // Change 2: Lineup — top 9 projected hitters (Steamer) vs actual lineup (raw sums, no weights)
   const teamHitterSrc = uploadedHit26 || HITTER_26;
-  const teamLineupBaseline = teamHitterSrc
+  const teamLineupBaseline = HITTER_26
     .filter(p => p.team === teamAbbr && !isNaN(parseFloat(p.war)))
     .sort((a, b) => b.war - a.war)
     .slice(0, 9)
@@ -635,7 +635,7 @@ function calcTeamDay(team, lineup, spName, roster, isHomeTeam, homeTeamAbbr) {
 
   // Change 3: SP — top 5 Steamer projected SPs vs today's starter × 5
   const teamPitcherSrc = uploadedPit26 || PITCHER_26;
-  const teamSpProj = teamPitcherSrc
+  const teamSpProj = PITCHER_26
     .filter(p => p.team === teamAbbr && !isNaN(parseFloat(p.war)))
     .sort((a, b) => b.war - a.war)
     .slice(0, 5)
@@ -1580,7 +1580,7 @@ function buildTeamAuditHTML(team, g, side) {
         <span></span><span>Player</span><span style="text-align:right">WAR'26</span>
       </div>
       ${batterRows}
-      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Team top-9 Steamer WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamOffBaseline)}</span></div>
+      <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Team top-9 preseason WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamOffBaseline)}</span></div>
       <div class="audit-row"><span class="audit-row-label">Lineup WAR'26 sum vs baseline</span><span class="audit-row-val ${valClass(audit.offDelta)}">${fmtSign(audit.offDelta)}</span></div>
       <div class="audit-row"><span class="audit-row-label">Run adjustment (Δ × 10)</span><span class="audit-row-val ${valClass(audit.offRunAdj)}">${fmtSign(audit.offRunAdj)}</span></div>
       <div class="audit-row"><span class="audit-row-label"><strong>Adjusted Runs Scored</strong></span><span class="audit-row-val"><strong>${fmt1(audit.newRS)}</strong></span></div>
@@ -1593,7 +1593,7 @@ function buildTeamAuditHTML(team, g, side) {
       </div>
       <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26</span><span class="audit-row-val">${audit.starter.war26 !== null ? audit.starter.war26.toFixed(1) : '—'}</span></div>
       <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">WAR'26 ×5</span><span class="audit-row-val">${fmt1(audit.starter.war26Norm)}</span></div>
-      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">Team top-5 SP Steamer WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamSpWar25Total)}</span></div>
+      <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">Team top-5 SP preseason WAR'26 baseline</span><span class="audit-row-val">${fmt1(audit.teamSpWar25Total)}</span></div>
       <div class="audit-row"><span class="audit-row-label" style="padding-left:10px;">SP Δ (today × 5 − top-5 baseline)</span><span class="audit-row-val ${valClass(audit.spDelta)}">${fmtSign(audit.spDelta)}</span></div>
       <div class="audit-row" style="margin-top:4px;"><span class="audit-row-label" style="color:var(--text3);font-style:italic;">Bullpen adjustments removed (baked into season projection)</span></div>
       <div class="audit-row" style="margin-top:6px;"><span class="audit-row-label">Pitching run adj. (SP Δ × 10)</span><span class="audit-row-val ${valClass(-audit.pitRunAdj)}">${fmtSign(-audit.pitRunAdj)}</span></div>
