@@ -1421,6 +1421,7 @@ function handleUpload(type, input) {
     if (type === 'pit26') {
       uploadedPit26 = parsed;
       document.getElementById('zone-pit26').classList.add('loaded');
+      document.getElementById('reset-pit26').style.display = '';
       try { localStorage.setItem('mlb2026_pit26', JSON.stringify(parsed)); } catch(e) {}
     }
     renderUploadSummary(type, parsed);
@@ -1435,7 +1436,7 @@ function renderUploadSummary(type, data) {
   let matched = 0, unmatched = [], movers = [];
   for (const p of data) {
     const n = normName(p.name);
-   const found = baseline.find(x => normName(x.name) === n);
+    const found = baseline.find(x => normName(x.name) === n);
     if (found) {
       matched++;
       const delta = p.war - found.war;
