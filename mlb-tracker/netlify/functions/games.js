@@ -51,7 +51,7 @@ async function fetchOddsApiLines() {
   if (!apiKey) return {};
 
   // Return cached result if still fresh
-  const cached = readCache();
+  const cached = null; // readCache();
   if (cached) return cached;
 
   try {
