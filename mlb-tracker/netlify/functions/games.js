@@ -58,9 +58,13 @@ async function fetchOddsApiLines() {
     const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return {};
-    const data = await res.json();
+  const data = await res.json();
     const lines = {};
+    const today = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
+    const byMatchup = {};
     for (const game of data) {
+      const gameDate = game.commence_time ? game.commence_time.slice(0, 10) : '';
+      if (gameDate !== today) continue;
       const homeAbbr = ODDS_NAME_TO_ABBR[game.home_team];
       const awayAbbr = ODDS_NAME_TO_ABBR[game.away_team];
       if (!homeAbbr || !awayAbbr) continue;
@@ -78,11 +82,17 @@ async function fetchOddsApiLines() {
       if (awayMLs.length > 0 && homeMLs.length > 0) {
         awayMLs.sort((a,b) => a-b);
         homeMLs.sort((a,b) => a-b);
-        lines[`${awayAbbr}@${homeAbbr}`] = {
+        const key = `${awayAbbr}@${homeAbbr}`;
+        if (!byMatchup[key]) byMatchup[key] = [];
+        byMatchup[key].push({
+          commenceTime: game.commence_time,
           awayML: awayMLs[Math.floor(awayMLs.length / 2)],
           homeML: homeMLs[Math.floor(homeMLs.length / 2)],
-        };
+        });
       }
+    }
+    for (const [key, games] of Object.entries(byMatchup)) {
+      lines[key] = games.length === 1 ? games[0] : games;
     }
     writeCache(lines); // save for next hour
     return lines;
@@ -135,8 +145,16 @@ exports.handler = async function(event, context) {
         let awayML = null, homeML = null, mlSource = null;
 
         if (oddsLines[oddsKey]) {
-          awayML   = oddsLines[oddsKey].awayML;
-          homeML   = oddsLines[oddsKey].homeML;
+          const oddsEntry = oddsLines[oddsKey];
+          const match = Array.isArray(oddsEntry)
+            ? oddsEntry.reduce((best, o) => {
+                const diff = Math.abs(new Date(o.commenceTime) - new Date(g.gameDate));
+                const bestDiff = Math.abs(new Date(best.commenceTime) - new Date(g.gameDate));
+                return diff < bestDiff ? o : best;
+              })
+            : oddsEntry;
+          awayML   = match.awayML;
+          homeML   = match.homeML;
           mlSource = 'odds-api';
         }
 
