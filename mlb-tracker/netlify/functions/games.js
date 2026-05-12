@@ -51,9 +51,9 @@ async function fetchOddsApiLines() {
   if (!apiKey) return {};
 
   // Return cached result if still fresh
-  const cached = null; // readCache();
+  const cached = readCache();
   if (cached) return cached;
-
+  
   try {
     const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american&bookmakers=draftkings,fanduel,betmgm`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -63,7 +63,9 @@ async function fetchOddsApiLines() {
     const today = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
     const byMatchup = {};
     for (const game of data) {
-      const gameDate = game.commence_time ? game.commence_time.slice(0, 10) : '';
+      const gameDate = game.commence_time
+        ? new Date(game.commence_time).toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0]
+        : '';
       if (gameDate !== today) continue;
       const homeAbbr = ODDS_NAME_TO_ABBR[game.home_team];
       const awayAbbr = ODDS_NAME_TO_ABBR[game.away_team];
